@@ -1,0 +1,538 @@
+Directory structure:
+└── lfnovo-open-notebook/
+    ├── README.dev.md
+    ├── README.md
+    ├── CHANGELOG.md
+    ├── CLAUDE.md
+    ├── CODE_OF_CONDUCT.md
+    ├── CONFIGURATION.md
+    ├── CONTRIBUTING.md
+    ├── dev-init.sh
+    ├── docker-compose.yml
+    ├── Dockerfile
+    ├── Dockerfile.single
+    ├── history.txt
+    ├── LICENSE
+    ├── MAINTAINER_GUIDE.md
+    ├── Makefile
+    ├── mypy.ini
+    ├── pyproject.toml
+    ├── run_api.py
+    ├── supervisord.conf
+    ├── supervisord.single.conf
+    ├── .dockerignore
+    ├── .env.example
+    ├── .python-version
+    ├── .worktreeinclude
+    ├── api/
+    │   ├── __init__.py
+    │   ├── auth.py
+    │   ├── chat_service.py
+    │   ├── CLAUDE.md
+    │   ├── client.py
+    │   ├── command_service.py
+    │   ├── context_service.py
+    │   ├── credentials_service.py
+    │   ├── embedding_service.py
+    │   ├── episode_profiles_service.py
+    │   ├── insights_service.py
+    │   ├── main.py
+    │   ├── models.py
+    │   ├── models_service.py
+    │   ├── notebook_service.py
+    │   ├── notes_service.py
+    │   ├── podcast_api_service.py
+    │   ├── podcast_service.py
+    │   ├── search_service.py
+    │   ├── settings_service.py
+    │   ├── sources_service.py
+    │   ├── transformations_service.py
+    │   └── routers/
+    │       ├── __init__.py
+    │       ├── auth.py
+    │       ├── chat.py
+    │       ├── commands.py
+    │       ├── config.py
+    │       ├── context.py
+    │       ├── credentials.py
+    │       ├── embedding.py
+    │       ├── embedding_rebuild.py
+    │       ├── episode_profiles.py
+    │       ├── insights.py
+    │       ├── languages.py
+    │       ├── models.py
+    │       ├── notebooks.py
+    │       ├── notes.py
+    │       ├── podcasts.py
+    │       ├── search.py
+    │       ├── settings.py
+    │       ├── source_chat.py
+    │       ├── sources.py
+    │       ├── speaker_profiles.py
+    │       └── transformations.py
+    ├── commands/
+    │   ├── __init__.py
+    │   ├── CLAUDE.md
+    │   ├── embedding_commands.py
+    │   ├── example_commands.py
+    │   ├── podcast_commands.py
+    │   └── source_commands.py
+    ├── docs/
+    │   ├── index.md
+    │   ├── SECURITY_REVIEW.md
+    │   ├── 0-START-HERE/
+    │   │   ├── index.md
+    │   │   ├── quick-start-cloud.md
+    │   │   ├── quick-start-external-ollama.md
+    │   │   ├── quick-start-local.md
+    │   │   └── quick-start-openai.md
+    │   ├── 1-INSTALLATION/
+    │   │   ├── docker-compose.md
+    │   │   ├── from-source.md
+    │   │   ├── index.md
+    │   │   ├── single-container.md
+    │   │   └── windows-native.md
+    │   ├── 2-CORE-CONCEPTS/
+    │   │   ├── ai-context-rag.md
+    │   │   ├── chat-vs-transformations.md
+    │   │   ├── index.md
+    │   │   ├── notebooks-sources-notes.md
+    │   │   └── podcasts-explained.md
+    │   ├── 3-USER-GUIDE/
+    │   │   ├── adding-sources.md
+    │   │   ├── api-configuration.md
+    │   │   ├── chat-effectively.md
+    │   │   ├── citations.md
+    │   │   ├── creating-podcasts.md
+    │   │   ├── index.md
+    │   │   ├── interface-overview.md
+    │   │   ├── search.md
+    │   │   ├── transformations.md
+    │   │   └── working-with-notes.md
+    │   ├── 4-AI-PROVIDERS/
+    │   │   └── index.md
+    │   ├── 5-CONFIGURATION/
+    │   │   ├── advanced.md
+    │   │   ├── ai-providers.md
+    │   │   ├── database.md
+    │   │   ├── environment-reference.md
+    │   │   ├── index.md
+    │   │   ├── local-stt.md
+    │   │   ├── local-tts.md
+    │   │   ├── mcp-integration.md
+    │   │   ├── ollama.md
+    │   │   ├── openai-compatible.md
+    │   │   ├── reverse-proxy.md
+    │   │   └── security.md
+    │   ├── 6-TROUBLESHOOTING/
+    │   │   ├── ai-chat-issues.md
+    │   │   ├── connection-issues.md
+    │   │   ├── faq.md
+    │   │   ├── index.md
+    │   │   └── quick-fixes.md
+    │   └── 7-DEVELOPMENT/
+    │       ├── api-reference.md
+    │       ├── architecture.md
+    │       ├── change-playbooks.md
+    │       ├── code-standards.md
+    │       ├── contributing.md
+    │       ├── design-principles.md
+    │       ├── development-setup.md
+    │       ├── index.md
+    │       ├── maintainer-guide.md
+    │       ├── quick-start.md
+    │       ├── security.md
+    │       └── testing.md
+    ├── examples/
+    │   ├── README.md
+    │   ├── docker-compose-dev.yml
+    │   ├── docker-compose-full-local.yml
+    │   ├── docker-compose-ollama.yml
+    │   ├── docker-compose-single.yml
+    │   └── docker-compose-speaches.yml
+    ├── frontend/
+    │   ├── components.json
+    │   ├── eslint.config.mjs
+    │   ├── next.config.ts
+    │   ├── package.json
+    │   ├── postcss.config.mjs
+    │   ├── start-server.js
+    │   ├── tailwind.config.ts
+    │   ├── tsconfig.json
+    │   ├── vitest.config.ts
+    │   ├── src/
+    │   │   ├── CLAUDE.md
+    │   │   ├── proxy.ts
+    │   │   ├── app/
+    │   │   │   ├── globals.css
+    │   │   │   ├── layout.tsx
+    │   │   │   ├── page.tsx
+    │   │   │   ├── (auth)/
+    │   │   │   │   └── login/
+    │   │   │   │       └── page.tsx
+    │   │   │   ├── (dashboard)/
+    │   │   │   │   ├── layout.tsx
+    │   │   │   │   ├── page.tsx
+    │   │   │   │   ├── advanced/
+    │   │   │   │   │   ├── page.tsx
+    │   │   │   │   │   └── components/
+    │   │   │   │   │       ├── RebuildEmbeddings.tsx
+    │   │   │   │   │       └── SystemInfo.tsx
+    │   │   │   │   ├── notebooks/
+    │   │   │   │   │   ├── page.tsx
+    │   │   │   │   │   ├── [id]/
+    │   │   │   │   │   │   └── page.tsx
+    │   │   │   │   │   └── components/
+    │   │   │   │   │       ├── ChatColumn.test.tsx
+    │   │   │   │   │       ├── ChatColumn.tsx
+    │   │   │   │   │       ├── NotebookCard.tsx
+    │   │   │   │   │       ├── NotebookDeleteDialog.tsx
+    │   │   │   │   │       ├── NotebookHeader.tsx
+    │   │   │   │   │       ├── NotebookList.tsx
+    │   │   │   │   │       ├── NoteEditorDialog.tsx
+    │   │   │   │   │       ├── NotesColumn.tsx
+    │   │   │   │   │       └── SourcesColumn.tsx
+    │   │   │   │   ├── podcasts/
+    │   │   │   │   │   └── page.tsx
+    │   │   │   │   ├── search/
+    │   │   │   │   │   └── page.tsx
+    │   │   │   │   ├── settings/
+    │   │   │   │   │   ├── page.tsx
+    │   │   │   │   │   └── components/
+    │   │   │   │   │       └── SettingsForm.tsx
+    │   │   │   │   ├── sources/
+    │   │   │   │   │   ├── page.tsx
+    │   │   │   │   │   └── [id]/
+    │   │   │   │   │       └── page.tsx
+    │   │   │   │   └── transformations/
+    │   │   │   │       ├── page.tsx
+    │   │   │   │       └── components/
+    │   │   │   │           ├── DefaultPromptEditor.tsx
+    │   │   │   │           ├── TransformationCard.tsx
+    │   │   │   │           ├── TransformationEditorDialog.tsx
+    │   │   │   │           ├── TransformationPlayground.tsx
+    │   │   │   │           └── TransformationsList.tsx
+    │   │   │   └── config/
+    │   │   │       └── route.ts
+    │   │   ├── components/
+    │   │   │   ├── auth/
+    │   │   │   │   └── LoginForm.tsx
+    │   │   │   ├── common/
+    │   │   │   │   ├── CommandPalette.tsx
+    │   │   │   │   ├── ConfirmDialog.test.tsx
+    │   │   │   │   ├── ConfirmDialog.tsx
+    │   │   │   │   ├── ConnectionGuard.tsx
+    │   │   │   │   ├── ContextIndicator.tsx
+    │   │   │   │   ├── ContextToggle.tsx
+    │   │   │   │   ├── EmptyState.tsx
+    │   │   │   │   ├── ErrorBoundary.tsx
+    │   │   │   │   ├── InlineEdit.tsx
+    │   │   │   │   ├── LanguageLoadingOverlay.tsx
+    │   │   │   │   ├── LanguageToggle.tsx
+    │   │   │   │   ├── LoadingSpinner.tsx
+    │   │   │   │   ├── ModelSelector.tsx
+    │   │   │   │   └── ThemeToggle.tsx
+    │   │   │   ├── errors/
+    │   │   │   │   └── ConnectionErrorOverlay.tsx
+    │   │   │   ├── layout/
+    │   │   │   │   ├── AppShell.tsx
+    │   │   │   │   ├── AppSidebar.test.tsx
+    │   │   │   │   ├── AppSidebar.tsx
+    │   │   │   │   └── SetupBanner.tsx
+    │   │   │   ├── notebooks/
+    │   │   │   │   ├── CollapsibleColumn.tsx
+    │   │   │   │   └── CreateNotebookDialog.tsx
+    │   │   │   ├── podcasts/
+    │   │   │   │   ├── EpisodeCard.tsx
+    │   │   │   │   ├── EpisodeProfilesPanel.tsx
+    │   │   │   │   ├── EpisodesTab.tsx
+    │   │   │   │   ├── GeneratePodcastDialog.tsx
+    │   │   │   │   ├── SpeakerProfilesPanel.tsx
+    │   │   │   │   ├── TemplatesTab.tsx
+    │   │   │   │   └── forms/
+    │   │   │   │       ├── EpisodeProfileFormDialog.tsx
+    │   │   │   │       └── SpeakerProfileFormDialog.tsx
+    │   │   │   ├── providers/
+    │   │   │   │   ├── I18nProvider.tsx
+    │   │   │   │   ├── ModalProvider.tsx
+    │   │   │   │   ├── QueryProvider.tsx
+    │   │   │   │   └── ThemeProvider.tsx
+    │   │   │   ├── search/
+    │   │   │   │   ├── AdvancedModelsDialog.tsx
+    │   │   │   │   ├── SaveToNotebooksDialog.tsx
+    │   │   │   │   └── StreamingResponse.tsx
+    │   │   │   ├── settings/
+    │   │   │   │   ├── EmbeddingModelChangeDialog.tsx
+    │   │   │   │   ├── index.ts
+    │   │   │   │   ├── MigrationBanner.tsx
+    │   │   │   │   └── ModelTestResultDialog.tsx
+    │   │   │   ├── source/
+    │   │   │   │   ├── ChatPanel.tsx
+    │   │   │   │   ├── MessageActions.tsx
+    │   │   │   │   ├── ModelSelector.tsx
+    │   │   │   │   ├── NotebookAssociations.tsx
+    │   │   │   │   ├── SessionManager.tsx
+    │   │   │   │   ├── SourceDetailContent.tsx
+    │   │   │   │   ├── SourceDialog.tsx
+    │   │   │   │   └── SourceInsightDialog.tsx
+    │   │   │   ├── sources/
+    │   │   │   │   ├── README.md
+    │   │   │   │   ├── AddExistingSourceDialog.tsx
+    │   │   │   │   ├── AddSourceButton.tsx
+    │   │   │   │   ├── AddSourceDialog.tsx
+    │   │   │   │   ├── index.ts
+    │   │   │   │   ├── SourceCard.tsx
+    │   │   │   │   └── steps/
+    │   │   │   │       ├── NotebooksStep.tsx
+    │   │   │   │       ├── ProcessingStep.tsx
+    │   │   │   │       └── SourceTypeStep.tsx
+    │   │   │   └── ui/
+    │   │   │       ├── accordion.tsx
+    │   │   │       ├── alert-dialog.tsx
+    │   │   │       ├── alert.tsx
+    │   │   │       ├── badge.tsx
+    │   │   │       ├── button.tsx
+    │   │   │       ├── card.tsx
+    │   │   │       ├── checkbox-list.tsx
+    │   │   │       ├── checkbox.tsx
+    │   │   │       ├── CLAUDE.md
+    │   │   │       ├── collapsible.tsx
+    │   │   │       ├── command.tsx
+    │   │   │       ├── dialog.tsx
+    │   │   │       ├── dropdown-menu.tsx
+    │   │   │       ├── form-section.tsx
+    │   │   │       ├── input.tsx
+    │   │   │       ├── label.tsx
+    │   │   │       ├── markdown-editor.tsx
+    │   │   │       ├── popover.tsx
+    │   │   │       ├── progress.tsx
+    │   │   │       ├── radio-group.tsx
+    │   │   │       ├── scroll-area.tsx
+    │   │   │       ├── select.tsx
+    │   │   │       ├── separator.tsx
+    │   │   │       ├── sonner.tsx
+    │   │   │       ├── tabs.tsx
+    │   │   │       ├── textarea.tsx
+    │   │   │       ├── tooltip.tsx
+    │   │   │       └── wizard-container.tsx
+    │   │   ├── lib/
+    │   │   │   ├── config.test.ts
+    │   │   │   ├── config.ts
+    │   │   │   ├── i18n-events.ts
+    │   │   │   ├── i18n.ts
+    │   │   │   ├── theme-script.ts
+    │   │   │   ├── utils.ts
+    │   │   │   ├── api/
+    │   │   │   │   ├── chat.ts
+    │   │   │   │   ├── CLAUDE.md
+    │   │   │   │   ├── client.ts
+    │   │   │   │   ├── credentials.ts
+    │   │   │   │   ├── embedding.ts
+    │   │   │   │   ├── insights.ts
+    │   │   │   │   ├── models.ts
+    │   │   │   │   ├── notebooks.ts
+    │   │   │   │   ├── notes.ts
+    │   │   │   │   ├── podcasts.ts
+    │   │   │   │   ├── query-client.ts
+    │   │   │   │   ├── search.ts
+    │   │   │   │   ├── settings.ts
+    │   │   │   │   ├── source-chat.ts
+    │   │   │   │   ├── sources.ts
+    │   │   │   │   └── transformations.ts
+    │   │   │   ├── hooks/
+    │   │   │   │   ├── CLAUDE.md
+    │   │   │   │   ├── use-ask.ts
+    │   │   │   │   ├── use-auth.ts
+    │   │   │   │   ├── use-create-dialogs.tsx
+    │   │   │   │   ├── use-credentials.ts
+    │   │   │   │   ├── use-insights.ts
+    │   │   │   │   ├── use-media-query.ts
+    │   │   │   │   ├── use-modal-manager.test.ts
+    │   │   │   │   ├── use-modal-manager.ts
+    │   │   │   │   ├── use-models.ts
+    │   │   │   │   ├── use-navigation.ts
+    │   │   │   │   ├── use-notebooks.ts
+    │   │   │   │   ├── use-notes.ts
+    │   │   │   │   ├── use-podcasts.ts
+    │   │   │   │   ├── use-search.ts
+    │   │   │   │   ├── use-settings.ts
+    │   │   │   │   ├── use-sources.ts
+    │   │   │   │   ├── use-toast.ts
+    │   │   │   │   ├── use-transformations.ts
+    │   │   │   │   ├── use-translation.test.ts
+    │   │   │   │   ├── use-translation.ts
+    │   │   │   │   ├── use-version-check.ts
+    │   │   │   │   ├── useNotebookChat.ts
+    │   │   │   │   └── useSourceChat.ts
+    │   │   │   ├── locales/
+    │   │   │   │   ├── CLAUDE.md
+    │   │   │   │   ├── index.test.ts
+    │   │   │   │   ├── index.ts
+    │   │   │   │   ├── ca-ES/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── en-US/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── es-ES/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── it-IT/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── pl-PL/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── pt-BR/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── tr-TR/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── zh-CN/
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   └── zh-TW/
+    │   │   │   │       └── index.ts
+    │   │   │   ├── stores/
+    │   │   │   │   ├── auth-store.ts
+    │   │   │   │   ├── CLAUDE.md
+    │   │   │   │   ├── navigation-store.ts
+    │   │   │   │   ├── notebook-columns-store.ts
+    │   │   │   │   ├── sidebar-store.ts
+    │   │   │   │   └── theme-store.ts
+    │   │   │   ├── types/
+    │   │   │   │   ├── api.ts
+    │   │   │   │   ├── auth.ts
+    │   │   │   │   ├── common.ts
+    │   │   │   │   ├── config.ts
+    │   │   │   │   ├── models.ts
+    │   │   │   │   ├── podcasts.ts
+    │   │   │   │   ├── search.ts
+    │   │   │   │   └── transformations.ts
+    │   │   │   └── utils/
+    │   │   │       ├── date-locale.ts
+    │   │   │       ├── error-handler.ts
+    │   │   │       └── source-references.tsx
+    │   │   └── test/
+    │   │       ├── jest-dom.d.ts
+    │   │       └── setup.ts
+    │   └── test-results/
+    │       └── .last-run.json
+    ├── open_notebook/
+    │   ├── __init__.py
+    │   ├── CLAUDE.md
+    │   ├── config.py
+    │   ├── exceptions.py
+    │   ├── ai/
+    │   │   ├── __init__.py
+    │   │   ├── CLAUDE.md
+    │   │   ├── connection_tester.py
+    │   │   ├── key_provider.py
+    │   │   ├── model_discovery.py
+    │   │   ├── models.py
+    │   │   └── provision.py
+    │   ├── database/
+    │   │   ├── async_migrate.py
+    │   │   ├── CLAUDE.md
+    │   │   ├── migrate.py
+    │   │   ├── repository.py
+    │   │   └── migrations/
+    │   │       ├── 1.surrealql
+    │   │       ├── 10.surrealql
+    │   │       ├── 10_down.surrealql
+    │   │       ├── 11.surrealql
+    │   │       ├── 11_down.surrealql
+    │   │       ├── 12.surrealql
+    │   │       ├── 12_down.surrealql
+    │   │       ├── 13.surrealql
+    │   │       ├── 13_down.surrealql
+    │   │       ├── 14.surrealql
+    │   │       ├── 14_down.surrealql
+    │   │       ├── 1_down.surrealql
+    │   │       ├── 2.surrealql
+    │   │       ├── 2_down.surrealql
+    │   │       ├── 3.surrealql
+    │   │       ├── 3_down.surrealql
+    │   │       ├── 4.surrealql
+    │   │       ├── 4_down.surrealql
+    │   │       ├── 5.surrealql
+    │   │       ├── 5_down.surrealql
+    │   │       ├── 6.surrealql
+    │   │       ├── 6_down.surrealql
+    │   │       ├── 7.surrealql
+    │   │       ├── 7_down.surrealql
+    │   │       ├── 8.surrealql
+    │   │       ├── 8_down.surrealql
+    │   │       ├── 9.surrealql
+    │   │       └── 9_down.surrealql
+    │   ├── domain/
+    │   │   ├── __init__.py
+    │   │   ├── base.py
+    │   │   ├── CLAUDE.md
+    │   │   ├── content_settings.py
+    │   │   ├── credential.py
+    │   │   ├── notebook.py
+    │   │   ├── provider_config.py
+    │   │   └── transformation.py
+    │   ├── graphs/
+    │   │   ├── ask.py
+    │   │   ├── chat.py
+    │   │   ├── CLAUDE.md
+    │   │   ├── prompt.py
+    │   │   ├── source.py
+    │   │   ├── source_chat.py
+    │   │   ├── tools.py
+    │   │   └── transformation.py
+    │   ├── podcasts/
+    │   │   ├── __init__.py
+    │   │   ├── CLAUDE.md
+    │   │   ├── migration.py
+    │   │   └── models.py
+    │   └── utils/
+    │       ├── README.md
+    │       ├── __init__.py
+    │       ├── chunking.py
+    │       ├── CLAUDE.md
+    │       ├── context_builder.py
+    │       ├── embedding.py
+    │       ├── encryption.py
+    │       ├── error_classifier.py
+    │       ├── graph_utils.py
+    │       ├── text_utils.py
+    │       ├── token_utils.py
+    │       └── version_utils.py
+    ├── prompts/
+    │   ├── CLAUDE.md
+    │   ├── ask/
+    │   │   ├── entry.jinja
+    │   │   ├── final_answer.jinja
+    │   │   └── query_process.jinja
+    │   ├── chat/
+    │   │   └── system.jinja
+    │   ├── podcast/
+    │   │   ├── outline.jinja
+    │   │   └── transcript.jinja
+    │   └── source_chat/
+    │       └── system.jinja
+    ├── scripts/
+    │   ├── README.md
+    │   ├── export_docs.py
+    │   └── wait-for-api.sh
+    ├── tests/
+    │   ├── README.md
+    │   ├── conftest.py
+    │   ├── test_chunking.py
+    │   ├── test_credentials_api.py
+    │   ├── test_domain.py
+    │   ├── test_embedding.py
+    │   ├── test_graphs.py
+    │   ├── test_models_api.py
+    │   ├── test_notes_api.py
+    │   ├── test_podcast_path.py
+    │   ├── test_sources_api.py
+    │   ├── test_url_validation.py
+    │   └── test_utils.py
+    └── .github/
+        ├── pull_request_template.md
+        ├── ISSUE_TEMPLATE/
+        │   ├── bug_report.yml
+        │   ├── config.yml
+        │   ├── feature_request.yml
+        │   └── installation_issue.yml
+        └── workflows/
+            ├── build-and-release.yml
+            ├── build-dev.yml
+            └── test.yml

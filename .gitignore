@@ -1,0 +1,27 @@
+# --- Fichiers générés / lourds : on ne les versionne PAS ---
+
+# Dépendances Python (recréées par `uv sync`)
+open-notebook/.venv/
+
+# Dépendances frontend (recréées par `npm install`)
+open-notebook/frontend/node_modules/
+open-notebook/frontend/.next/
+
+# Données de la base SurrealDB (TES notebooks/sources/embeddings vivent ici)
+open-notebook/surreal_data/
+
+# Logs des services
+open-notebook/logs/
+
+# Données applicatives (checkpoints de chat, etc.)
+open-notebook/data/
+
+# Secrets : le .env contient ta clé de chiffrement
+open-notebook/.env
+
+# Caches Python
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
