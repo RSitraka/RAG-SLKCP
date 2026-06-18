@@ -51,8 +51,10 @@ fi
 if curl -s http://localhost:3001 >/dev/null 2>&1; then
   echo "✓ Frontend déjà lancé"
 else
-  echo "→ Démarrage Frontend (port 3001)..."
-  ( cd frontend && setsid nohup env PORT=3001 npm run dev > ../logs/frontend.log 2>&1 & )
+  echo "→ Démarrage Frontend (port 3001, accessible sur le réseau)..."
+  # -H 0.0.0.0 : écoute sur toutes les interfaces => joignable par les autres
+  # PC du réseau local (grâce au mode WSL "mirrored"). API reste en localhost.
+  ( cd frontend && setsid nohup env PORT=3001 npm run dev -- -H 0.0.0.0 > ../logs/frontend.log 2>&1 & )
   wait_for http://localhost:3001 "Frontend" 60
 fi
 
