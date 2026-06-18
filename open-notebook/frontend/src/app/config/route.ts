@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 /**
  * Runtime Configuration Endpoint
@@ -22,7 +22,7 @@ import { NextRequest, NextResponse } from 'next/server'
  *
  * This allows the same Docker image to work in different deployment scenarios.
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   // Priority 1: Check if API_URL is explicitly set
   const envApiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL
 
@@ -32,37 +32,13 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  // Priority 2: Auto-detect from request headers
-  try {
-    // Get the protocol (http or https)
-    // Check X-Forwarded-Proto first (for reverse proxies), then fallback to request scheme
-    const proto = request.headers.get('x-forwarded-proto') ||
-                  request.nextUrl.protocol.replace(':', '') ||
-                  'http'
-
-    // Get the host header (includes port if non-standard)
-    const hostHeader = request.headers.get('host')
-
-    if (hostHeader) {
-      // Extract just the hostname (remove port if present)
-      const hostname = hostHeader.split(':')[0]
-
-      // Construct the API URL with port 5055
-      const apiUrl = `${proto}://${hostname}:5055`
-
-      console.log(`[runtime-config] Auto-detected API URL: ${apiUrl} (proto=${proto}, host=${hostHeader})`)
-
-      return NextResponse.json({
-        apiUrl,
-      })
-    }
-  } catch (error) {
-    console.error('[runtime-config] Auto-detection failed:', error)
-  }
-
-  // Priority 3: Fallback to localhost
-  console.log('[runtime-config] Using fallback: http://localhost:5055')
+  // Déploiement local/LAN (modifié) : on renvoie un chemin RELATIF (apiUrl vide).
+  // Le navigateur appellera alors http://<host-utilisé>:3001/api/*, que Next.js
+  // relaie côté serveur vers localhost:5055 (voir rewrites dans next.config.ts).
+  // => fonctionne pour les utilisateurs distants SANS exposer le port 5055, et
+  //    quelle que soit l'IP du PC. L'ancienne auto-détection "host:5055" cassait
+  //    l'accès réseau car l'API n'écoute que sur 127.0.0.1.
   return NextResponse.json({
-    apiUrl: 'http://localhost:5055',
+    apiUrl: '',
   })
 }
