@@ -10,17 +10,22 @@ mkdir -p logs surreal_data
 NODE20_BIN="$(ls -d "$HOME"/.nvm/versions/node/v20*/bin 2>/dev/null | sort | tail -1)"
 [ -n "$NODE20_BIN" ] && export PATH="$NODE20_BIN:$PATH"
 
+# `uv` est dans ~/.local/bin (ajouté par ton shell interactif mais ABSENT du PATH
+# d'un script non-interactif). On l'ajoute explicitement, sinon l'API/worker ne
+# démarrent pas ("nohup: failed to run command 'uv'").
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
 wait_for() { # url, label, timeout_s
   local url="$1" label="$2" max="${3:-60}" i=0
   while [ "$i" -lt "$max" ]; do
-    curl -s "$url" >/dev/null 2>&1 && { echo "  ✓ $label prêt"; return 0; }
+    curl -s --max-time 3 "$url" >/dev/null 2>&1 && { echo "  ✓ $label prêt"; return 0; }
     i=$((i+1)); sleep 1
   done
   echo "  ✗ $label n'a pas répondu après ${max}s (voir logs/)"; return 1
 }
 
 # 1) SurrealDB (port 8000)
-if curl -s http://localhost:8000/health >/dev/null 2>&1; then
+if curl -s --max-time 3 http://localhost:8000/health >/dev/null 2>&1; then
   echo "✓ SurrealDB déjà lancé"
 else
   echo "→ Démarrage SurrealDB..."
@@ -30,7 +35,7 @@ else
 fi
 
 # 2) API FastAPI (port 5055) — lance les migrations automatiquement
-if curl -s http://localhost:5055/api/config >/dev/null 2>&1; then
+if curl -s --max-time 3 http://localhost:5055/api/config >/dev/null 2>&1; then
   echo "✓ API déjà lancée"
 else
   echo "→ Démarrage API..."
@@ -48,7 +53,7 @@ else
 fi
 
 # 4) Frontend Next.js (port 3001 ; 3000 est pris par un autre projet)
-if curl -s http://localhost:3001 >/dev/null 2>&1; then
+if curl -s --max-time 3 http://localhost:3001 >/dev/null 2>&1; then
   echo "✓ Frontend déjà lancé"
 else
   echo "→ Démarrage Frontend (port 3001, accessible sur le réseau)..."
