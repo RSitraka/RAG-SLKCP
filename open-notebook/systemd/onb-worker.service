@@ -1,0 +1,18 @@
+[Unit]
+Description=Open Notebook - Worker (jobs async : extraction, OCR, embeddings)
+After=onb-api.service
+Requires=onb-surreal.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/rasix/RG/open-notebook
+Environment=PATH=/home/rasix/.local/bin:/home/rasix/.cargo/bin:/home/rasix/.nvm/versions/node/v20.20.2/bin:/usr/local/bin:/usr/bin:/bin
+# Attend que l'API reponde (le worker partage migrations/schema)
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do curl -s --max-time 2 http://localhost:5055/api/config >/dev/null && exit 0; sleep 1; done; exit 1'
+# --no-sync indispensable : preserve docling/easyocr/torch installes hors uv.lock (OCR P3.1)
+ExecStart=/home/rasix/.local/bin/uv run --no-sync --env-file .env surreal-commands-worker --import-modules commands
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

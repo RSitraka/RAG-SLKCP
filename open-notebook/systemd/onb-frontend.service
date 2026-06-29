@@ -1,0 +1,16 @@
+[Unit]
+Description=Open Notebook - Frontend (Next.js, port 3001, accessible LAN)
+After=onb-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/rasix/RG/open-notebook/frontend
+Environment=PORT=3001
+Environment=PATH=/home/rasix/.nvm/versions/node/v20.20.2/bin:/home/rasix/.local/bin:/usr/local/bin:/usr/bin:/bin
+# -H 0.0.0.0 : ecoute sur toutes les interfaces => joignable par les autres PC du reseau
+ExecStart=/home/rasix/.nvm/versions/node/v20.20.2/bin/npm run dev -- -H 0.0.0.0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

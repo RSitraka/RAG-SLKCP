@@ -39,7 +39,7 @@ if curl -s --max-time 3 http://localhost:5055/api/config >/dev/null 2>&1; then
   echo "✓ API déjà lancée"
 else
   echo "→ Démarrage API..."
-  setsid nohup uv run --env-file .env run_api.py > logs/api.log 2>&1 &
+  setsid nohup uv run --no-sync --env-file .env run_api.py > logs/api.log 2>&1 &
   wait_for http://localhost:5055/api/config "API" 90
 fi
 
@@ -48,7 +48,7 @@ if pgrep -f "surreal-commands-worker" >/dev/null 2>&1; then
   echo "✓ Worker déjà lancé"
 else
   echo "→ Démarrage Worker..."
-  setsid nohup uv run --env-file .env surreal-commands-worker --import-modules commands > logs/worker.log 2>&1 &
+  setsid nohup uv run --no-sync --env-file .env surreal-commands-worker --import-modules commands > logs/worker.log 2>&1 &
   sleep 2; echo "  ✓ Worker lancé"
 fi
 

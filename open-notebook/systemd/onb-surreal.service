@@ -1,0 +1,14 @@
+[Unit]
+Description=Open Notebook - SurrealDB (base de donnees)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/rasix/RG/open-notebook
+ExecStartPre=/bin/mkdir -p /home/rasix/RG/open-notebook/surreal_data
+ExecStart=/home/rasix/.surrealdb/surreal start --user root --pass root --bind 127.0.0.1:8000 rocksdb:surreal_data/database.db
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
