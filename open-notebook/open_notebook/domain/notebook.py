@@ -766,3 +766,98 @@ async def vector_search(
         logger.error(f"Error performing vector search: {str(e)}")
         logger.exception(e)
         raise DatabaseOperationError(e)
+
+
+async def hybrid_search(
+    keyword: str,
+    results: int,
+    source: bool = True,
+    note: bool = True,
+    minimum_score=0.2,
+    rrf_k: int = 60,
+    candidate_multiplier: int = 3,
+):
+    """
+    Recherche HYBRIDE : combine la recherche mot-clé (BM25, text_search) et la
+    recherche sémantique (vecteurs MTREE, vector_search) via Reciprocal Rank Fusion.
+
+    RRF fusionne par RANG et non par score brut (les scores BM25 et cosinus ne sont
+    pas sur la même échelle) : chaque résultat reçoit score = Σ 1/(rrf_k + rang) sur
+    chacune des deux listes, puis on trie par ce score. Un document bien classé par
+    les DEUX moteurs remonte donc au-dessus d'un document fort sur un seul.
+
+    Robustesse : si un des deux moteurs échoue (ex. pas de modèle d'embedding pour le
+    vectoriel), on renvoie quand même les résultats de l'autre au lieu de tout casser.
+    """
+    if not keyword:
+        raise InvalidInputError("Search keyword cannot be empty")
+
+    # On sur-échantillonne chaque moteur (pool de candidats > résultats finaux)
+    # pour donner de la matière à la fusion.
+    pool = max(results * candidate_multiplier, 20)
+
+    vec_results, txt_results = await asyncio.gather(
+        vector_search(keyword, pool, source, note, minimum_score),
+        text_search(keyword, pool, source, note),
+        return_exceptions=True,
+    )
+    if isinstance(vec_results, Exception):
+        logger.warning(f"Hybrid: vector part failed, text-only: {vec_results}")
+        vec_results = []
+    if isinstance(txt_results, Exception):
+        logger.warning(f"Hybrid: text part failed, vector-only: {txt_results}")
+        txt_results = []
+
+    fused: dict[str, dict] = {}
+
+    def _entry(r):
+        key = str(r.get("parent_id") or r.get("id"))
+        return key, fused.setdefault(
+            key,
+            {
+                "id": r.get("id"),
+                "parent_id": r.get("parent_id"),
+                "title": r.get("title"),
+                "matches": r.get("matches"),
+                "rrf_score": 0.0,
+                "vector_similarity": None,
+                "text_relevance": None,
+            },
+        )
+
+    def _merge(rows, kind):
+        # Dedup PAR SOURCE dans cette liste : on ne compte le RRF qu'UNE fois par
+        # source (a son MEILLEUR rang), sinon une source presente en chunk + insight
+        # verrait sa contribution comptee deux fois. Les lignes arrivent deja triees
+        # par score decroissant, donc la 1re occurrence d'une cle = son meilleur rang.
+        seen: set[str] = set()
+        rank = 0
+        for r in rows or []:
+            key = str(r.get("parent_id") or r.get("id"))
+            if not key or key == "None":
+                continue
+            _, entry = _entry(r)
+            # metadonnee de score : on garde le MAX (meilleur) vu pour cette source
+            if kind == "vector":
+                sim = r.get("similarity")
+                if sim is not None and (entry["vector_similarity"] is None or sim > entry["vector_similarity"]):
+                    entry["vector_similarity"] = sim
+                if not entry.get("matches"):
+                    entry["matches"] = r.get("matches")
+            else:
+                rel = r.get("relevance")
+                if rel is not None and (entry["text_relevance"] is None or rel > entry["text_relevance"]):
+                    entry["text_relevance"] = rel
+            if not entry.get("title"):
+                entry["title"] = r.get("title")
+            # contribution RRF : une seule fois par source, au 1er (meilleur) rang
+            if key not in seen:
+                seen.add(key)
+                rank += 1
+                entry["rrf_score"] += 1.0 / (rrf_k + rank)
+
+    _merge(vec_results, "vector")
+    _merge(txt_results, "text")
+
+    ranked = sorted(fused.values(), key=lambda x: x["rrf_score"], reverse=True)
+    return ranked[:results]

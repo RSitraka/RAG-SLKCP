@@ -39,7 +39,7 @@ export default function SearchPage() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState(urlMode === 'search' ? urlQuery : '')
-  const [searchType, setSearchType] = useState<'text' | 'vector'>('text')
+  const [searchType, setSearchType] = useState<'text' | 'vector' | 'hybrid'>('text')
   const [searchSources, setSearchSources] = useState(true)
   const [searchNotes, setSearchNotes] = useState(true)
 
@@ -366,7 +366,7 @@ export default function SearchPage() {
                     <RadioGroup
                       name="search-type"
                       value={searchType}
-                      onValueChange={(value: 'text' | 'vector') => setSearchType(value)}
+                      onValueChange={(value: 'text' | 'vector' | 'hybrid') => setSearchType(value)}
                       disabled={modelsLoading || searchMutation.isPending}
                     >
                       <div className="flex items-center space-x-2">
@@ -386,6 +386,19 @@ export default function SearchPage() {
                           className={`font-normal ${!hasEmbeddingModel ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer'}`}
                         >
                           {t('searchPage.vectorSearch')}
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem
+                          value="hybrid"
+                          id="hybrid"
+                          disabled={!hasEmbeddingModel || searchMutation.isPending}
+                        />
+                        <Label
+                          htmlFor="hybrid"
+                          className={`font-normal ${!hasEmbeddingModel ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer'}`}
+                        >
+                          {t('searchPage.hybridSearch')}
                         </Label>
                       </div>
                     </RadioGroup>

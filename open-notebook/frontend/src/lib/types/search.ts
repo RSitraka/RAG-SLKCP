@@ -1,7 +1,7 @@
 // Search types
 export interface SearchRequest {
   query: string
-  type: 'text' | 'vector'
+  type: 'text' | 'vector' | 'hybrid'
   limit: number
   search_sources: boolean
   search_notes: boolean

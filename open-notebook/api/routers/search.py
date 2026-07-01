@@ -7,7 +7,7 @@ from loguru import logger
 
 from api.models import AskRequest, AskResponse, SearchRequest, SearchResponse
 from open_notebook.ai.models import Model, model_manager
-from open_notebook.domain.notebook import text_search, vector_search
+from open_notebook.domain.notebook import hybrid_search, text_search, vector_search
 from open_notebook.exceptions import DatabaseOperationError, InvalidInputError
 from open_notebook.graphs.ask import graph as ask_graph
 
@@ -27,6 +27,23 @@ async def search_knowledge_base(search_request: SearchRequest):
                 )
 
             results = await vector_search(
+                keyword=search_request.query,
+                results=search_request.limit,
+                source=search_request.search_sources,
+                note=search_request.search_notes,
+                minimum_score=search_request.minimum_score,
+            )
+        elif search_request.type == "hybrid":
+            # Hybrid search: fuse BM25 + vector via Reciprocal Rank Fusion.
+            # Requires an embedding model for the vector half (degrades to text-only
+            # inside hybrid_search if unavailable, but we surface a clear error if the
+            # user explicitly wants hybrid and no embedder is configured).
+            if not await model_manager.get_embedding_model():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Hybrid search requires an embedding model. Please configure one in the Models section.",
+                )
+            results = await hybrid_search(
                 keyword=search_request.query,
                 results=search_request.limit,
                 source=search_request.search_sources,

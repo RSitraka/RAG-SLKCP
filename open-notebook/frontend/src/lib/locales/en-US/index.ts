@@ -469,6 +469,7 @@ export const enUS = {
     vectorSearchWarning: "Vector search requires an embedding model. Only text search is available.",
     textSearch: "Text Search",
     vectorSearch: "Vector Search",
+    hybridSearch: "Hybrid Search (keyword + vector)",
     searchIn: "Search In",
     searchSources: "Search Sources",
     searchNotes: "Search Notes",
