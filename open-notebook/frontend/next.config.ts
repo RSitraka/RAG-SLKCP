@@ -7,7 +7,14 @@ const nextConfig: NextConfig = {
   // Autorise le chargement des ressources de dev (/_next/*) quand l'app est
   // ouverte depuis le réseau local (sinon Next.js 16 bloque => écran blanc).
   // Ajoute ici les IP/hôtes depuis lesquels on accède au serveur de dev.
-  allowedDevOrigins: ["192.168.1.113", "localhost", "127.0.0.1"],
+  // "192.168.1.*" couvre tout le LAN : l'accès survit à un changement d'IP DHCP.
+  allowedDevOrigins: [
+    "192.168.1.*",
+    "192.168.1.113",
+    "serveur-slkcp",
+    "localhost",
+    "127.0.0.1",
+  ],
 
   // Experimental features
   // Type assertion needed: proxyClientMaxBodySize is valid in Next.js 15 but types lag behind
