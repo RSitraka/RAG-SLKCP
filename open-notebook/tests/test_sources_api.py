@@ -162,7 +162,10 @@ class TestRetrySourceProcessing:
 
         # The corrected query returns the linked notebook(s)
         mock_repo_query.return_value = ["notebook:1"]
-        mock_submit.return_value = "123"
+        # submit_command_job renvoie un id DÉJÀ préfixé (str(RecordID)), comme
+        # dans les autres tests de ce fichier. Le mock renvoyait "123", ce qui
+        # ne passait que tant que la route re-préfixait à tort.
+        mock_submit.return_value = "command:123"
 
         response = client.post("/api/sources/source:1/retry")
 

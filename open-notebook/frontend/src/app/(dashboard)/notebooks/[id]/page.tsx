@@ -65,14 +65,14 @@ export default function NotebookPage() {
         const newSourceSelections = { ...prev.sources }
         sources.forEach(source => {
           const currentMode = newSourceSelections[source.id]
-          const hasInsights = source.insights_count > 0
 
           if (currentMode === undefined) {
-            // Initial setup - default based on insights availability
-            newSourceSelections[source.id] = hasInsights ? 'insights' : 'full'
-          } else if (currentMode === 'full' && hasInsights) {
-            // Source gained insights while in 'full' mode - auto-switch to 'insights'
-            newSourceSelections[source.id] = 'insights'
+            // Par défaut : TEXTE INTÉGRAL pour chaque source, afin que le chat
+            // interroge TOUS les documents en entier. Le résumé (Dense Summary)
+            // est une compression avec perte : il supprime ou déforme des
+            // détails (ex. la directrice générale, une ligne de la grille des
+            // salaires). On ne bascule plus automatiquement vers « insights ».
+            newSourceSelections[source.id] = 'full'
           }
         })
         return { ...prev, sources: newSourceSelections }

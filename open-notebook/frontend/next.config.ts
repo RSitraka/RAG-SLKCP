@@ -15,6 +15,16 @@ const nextConfig: NextConfig = {
     // Increase proxy body size limit for file uploads (default is 10MB)
     // This allows larger files to be uploaded through the /api/* rewrite proxy to FastAPI
     proxyClientMaxBodySize: '100mb',
+
+    // Délai avant que le proxy /api/* abandonne la requête vers FastAPI.
+    // Défaut Next.js : 30 s (`proxyTimeout || 30000` dans
+    // server/lib/router-utils/proxy-request.js). Bien trop court pour le chat
+    // et les transformations : un LLM local (Ollama) met couramment 1 à 2 min
+    // sur un contexte réel. Passé ce délai le proxy coupe la connexion, le
+    // navigateur reçoit un 500 et la requête n'apparaît JAMAIS dans
+    // logs/api.log — l'API, elle, termine son travail dans le vide.
+    // Aligné sur le timeout du client axios (600 s, cf. src/lib/api/client.ts).
+    proxyTimeout: 600_000,
   } as NextConfig['experimental'],
 
   // API Rewrites: Proxy /api/* requests to FastAPI backend

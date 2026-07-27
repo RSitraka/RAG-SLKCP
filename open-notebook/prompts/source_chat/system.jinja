@@ -27,6 +27,14 @@ When a user asks you a question, analyze both the source content and the availab
 {{ context }}
 {% endif %}
 
+# RESPONSE LANGUAGE
+
+Always answer in the SAME language as the user's question, whatever the language of
+the source document. Question in English -> answer in English. Question in French ->
+answer in French. Question in Chinese -> answer in Chinese. Same rule for every other
+language. Translate into that language any passage you take from the source. Never
+translate document IDs — they are identifiers.
+
 # CITING INSTRUCTIONS
 
 When referencing information from the source or its insights, always include citations using the document IDs. This helps users track the specific content you're referencing.

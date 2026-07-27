@@ -79,8 +79,17 @@ class TestDetectContentTypeFromExtension:
     def test_unknown_extensions(self):
         """Test unknown extensions return None."""
         assert detect_content_type_from_extension("file.xyz") is None
-        assert detect_content_type_from_extension("file.docx") is None
-        assert detect_content_type_from_extension("file.pdf") is None
+        assert detect_content_type_from_extension("file.abcdef") is None
+
+    def test_binary_document_extensions_default_to_plain(self):
+        """Documents binaires : connus de la table, mais l'extension ne décide pas.
+
+        Ils sont mappés sur PLAIN comme repli sûr (aucun splitter structurel),
+        mais `detect_content_type()` les envoie aux heuristiques via
+        _TRANSFORMED_EXTENSIONS, car l'extraction les convertit en markdown.
+        """
+        assert detect_content_type_from_extension("file.docx") == ContentType.PLAIN
+        assert detect_content_type_from_extension("file.pdf") == ContentType.PLAIN
 
     def test_no_extension(self):
         """Test files without extension."""
@@ -226,6 +235,23 @@ class TestDetectContentType:
         content_type = detect_content_type(html_text, "file.txt")
         # High confidence HTML should override .txt extension
         assert content_type == ContentType.HTML
+
+    def test_transformed_extension_uses_heuristics(self):
+        """Un PDF est converti en markdown à l'extraction : l'extension est ignorée."""
+        md_text = (
+            "# Titre\n\n## Sous-titre\n\n### Section\n\n"
+            "Du contenu avec un [lien](http://x) et une liste :\n\n"
+            "- un\n- deux\n- trois\n"
+        )
+        assert detect_content_type(md_text, "rapport.pdf") == ContentType.MARKDOWN
+
+    def test_code_extension_is_not_markdown(self):
+        """Un .py plein de commentaires '# ...' ne doit pas passer pour du markdown."""
+        py_code = (
+            "# imports\nimport os\n\n# configuration\nX = 1\n\n"
+            "# point d'entree\ndef main():\n    return os.getcwd()\n"
+        )
+        assert detect_content_type(py_code, "script.py") == ContentType.PLAIN
 
 
 # ============================================================================

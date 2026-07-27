@@ -4,6 +4,19 @@ Chunking utilities for Open Notebook.
 Provides content-type detection and smart text chunking for embedding operations.
 Supports HTML, Markdown, and plain text with appropriate splitters for each type.
 
+IMPORTANT — relation avec graphs/source.py:
+    Le pipeline d'extraction (`source.py`) force `output_format = "markdown"`.
+    Autrement dit, quel que soit le type d'entrée (PDF, image OCRisée, audio
+    transcrit, tableur, code...), le texte qui arrive ici est déjà du markdown.
+    L'extension du fichier d'origine décrit la SOURCE, pas le contenu extrait.
+    C'est pourquoi `detect_content_type()` privilégie désormais les
+    heuristiques et n'utilise l'extension que comme indice secondaire — voir
+    `EXTRACTION_PRODUCES_MARKDOWN` ci-dessous.
+
+Le découpage est agnostique à la langue : les séparateurs couvrent les
+ponctuations latine, CJK, arabe et indienne, et les langues sans espaces
+(chinois, japonais, thaï) retombent sur un découpage caractère par caractère.
+
 Key functions:
 - detect_content_type(): Detects content type from file extension or content heuristics
 - chunk_text(): Splits text into chunks using appropriate splitter for content type
@@ -12,6 +25,8 @@ Environment Variables:
     OPEN_NOTEBOOK_CHUNK_SIZE: Maximum chunk size in tokens (default: 400)
     OPEN_NOTEBOOK_CHUNK_OVERLAP: Overlap between chunks in tokens (default: 15% of CHUNK_SIZE)
     OPEN_NOTEBOOK_MIN_CHUNK_SIZE: Minimum chunk size in tokens (default: 5)
+    OPEN_NOTEBOOK_TRUST_EXTENSION: "1" pour refaire confiance à l'extension
+        plutôt qu'aux heuristiques (comportement historique).
 """
 
 import os
@@ -118,9 +133,15 @@ CHUNK_OVERLAP = _get_chunk_overlap(CHUNK_SIZE)
 MIN_CHUNK_SIZE = _get_min_chunk_size()
 HIGH_CONFIDENCE_THRESHOLD = 0.8  # Threshold for heuristics to override extension
 
+# Le pipeline d'extraction normalise tout en markdown ; l'extension d'origine
+# n'est donc qu'un indice faible. Mettre OPEN_NOTEBOOK_TRUST_EXTENSION=1 pour
+# rétablir l'ancien comportement (extension prioritaire).
+EXTRACTION_PRODUCES_MARKDOWN = os.getenv("OPEN_NOTEBOOK_TRUST_EXTENSION") != "1"
+
 logger.debug(
     f"Chunking configuration: CHUNK_SIZE={CHUNK_SIZE}, "
-    f"CHUNK_OVERLAP={CHUNK_OVERLAP}, MIN_CHUNK_SIZE={MIN_CHUNK_SIZE}"
+    f"CHUNK_OVERLAP={CHUNK_OVERLAP}, MIN_CHUNK_SIZE={MIN_CHUNK_SIZE}, "
+    f"EXTRACTION_PRODUCES_MARKDOWN={EXTRACTION_PRODUCES_MARKDOWN}"
 )
 
 
@@ -132,42 +153,94 @@ class ContentType(Enum):
     PLAIN = "plain"
 
 
-# File extension mappings
-_EXTENSION_TO_CONTENT_TYPE = {
-    # HTML
-    ".html": ContentType.HTML,
-    ".htm": ContentType.HTML,
-    ".xhtml": ContentType.HTML,
-    # Markdown
-    ".md": ContentType.MARKDOWN,
-    ".markdown": ContentType.MARKDOWN,
-    ".mdown": ContentType.MARKDOWN,
-    ".mkd": ContentType.MARKDOWN,
-    # Plain text (explicit)
-    ".txt": ContentType.PLAIN,
-    ".text": ContentType.PLAIN,
-    # Code files (treat as plain)
-    ".py": ContentType.PLAIN,
-    ".js": ContentType.PLAIN,
-    ".ts": ContentType.PLAIN,
-    ".java": ContentType.PLAIN,
-    ".c": ContentType.PLAIN,
-    ".cpp": ContentType.PLAIN,
-    ".go": ContentType.PLAIN,
-    ".rs": ContentType.PLAIN,
-    ".rb": ContentType.PLAIN,
-    ".php": ContentType.PLAIN,
-    ".sh": ContentType.PLAIN,
-    ".bash": ContentType.PLAIN,
-    ".zsh": ContentType.PLAIN,
-    ".sql": ContentType.PLAIN,
-    ".json": ContentType.PLAIN,
-    ".yaml": ContentType.PLAIN,
-    ".yml": ContentType.PLAIN,
-    ".xml": ContentType.PLAIN,
-    ".csv": ContentType.PLAIN,
-    ".tsv": ContentType.PLAIN,
+# ---------------------------------------------------------------------------
+# Mapping extensions -> stratégie de découpage.
+# Synchronisé avec graphs/source.py : chaque famille d'extensions reconnue
+# à l'extraction a une stratégie de chunking ici.
+# ---------------------------------------------------------------------------
+
+_HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".mhtml"}
+
+_MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdown", ".mkd", ".mdx"}
+
+# Tout le reste est découpé comme du texte brut. Regroupé par famille pour
+# rester lisible et pour correspondre aux types de source.py.
+_PLAIN_EXTENSIONS = {
+    # texte
+    ".txt", ".text", ".rst", ".org", ".tex", ".log",
+    # code (cf. CODE_EXTENSIONS dans source.py)
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".h", ".cpp", ".hpp",
+    ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".sh",
+    ".bash", ".zsh", ".sql", ".r", ".lua", ".pl", ".dart", ".vue", ".svelte",
+    # données structurées
+    ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".xml", ".toml", ".ini",
+    ".csv", ".tsv",
+    # sous-titres
+    ".srt", ".vtt", ".ass", ".ssa", ".sub",
+    # documents, tableurs, présentations, ebooks : le texte extrait est du
+    # markdown, mais on garde une entrée explicite pour la traçabilité.
+    ".pdf", ".docx", ".doc", ".odt", ".rtf", ".pages",
+    ".xlsx", ".xls", ".xlsm", ".ods",
+    ".pptx", ".ppt", ".odp", ".key",
+    ".epub", ".mobi", ".azw", ".azw3", ".fb2",
+    # médias : le contenu est une transcription / un OCR, donc du texte
+    ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".flac", ".wma",
+    ".aiff", ".aif", ".amr", ".mpga",
+    ".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".wmv", ".m4v",
+    ".mpeg", ".mpg", ".3gp", ".ogv", ".m2ts", ".mts",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp",
+    ".heic", ".heif", ".svg", ".avif", ".ico",
 }
+
+_EXTENSION_TO_CONTENT_TYPE = {}
+for _ext in _HTML_EXTENSIONS:
+    _EXTENSION_TO_CONTENT_TYPE[_ext] = ContentType.HTML
+for _ext in _MARKDOWN_EXTENSIONS:
+    _EXTENSION_TO_CONTENT_TYPE[_ext] = ContentType.MARKDOWN
+for _ext in _PLAIN_EXTENSIONS:
+    _EXTENSION_TO_CONTENT_TYPE[_ext] = ContentType.PLAIN
+
+# Extensions dont le contenu extrait est du markdown quoi qu'il arrive :
+# l'extension ne doit pas empêcher les heuristiques markdown de s'appliquer.
+_TRANSFORMED_EXTENSIONS = _PLAIN_EXTENSIONS - {
+    # Texte déjà brut : content-core le lit tel quel, il ne le convertit pas.
+    ".txt", ".text", ".log", ".rst", ".org", ".tex",
+    ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".xml", ".toml", ".ini",
+    ".csv", ".tsv",
+    ".srt", ".vtt", ".ass", ".ssa", ".sub",
+    # Code source : lu tel quel lui aussi. Surtout, un fichier Python avec des
+    # lignes "# commentaire" matche l'heuristique de titre markdown
+    # (^#{1,6}\s+) et serait découpé par MarkdownHeaderTextSplitter à chaque
+    # commentaire. L'extension doit donc rester prioritaire pour le code.
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".h", ".cpp", ".hpp",
+    ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".sh",
+    ".bash", ".zsh", ".sql", ".r", ".lua", ".pl", ".dart", ".vue", ".svelte",
+}
+
+
+# ---------------------------------------------------------------------------
+# Séparateurs multilingues
+# ---------------------------------------------------------------------------
+# L'ordre va du plus fort (paragraphe) au plus faible (caractère). Les langues
+# sans espaces entre les mots (zh, ja, th) n'ont aucun séparateur " " utile :
+# c'est le "" final qui garantit qu'on ne dépasse jamais CHUNK_SIZE.
+MULTILINGUAL_SEPARATORS = [
+    "\n\n",      # paragraphe
+    "\n",        # ligne
+    "。",         # point CJK
+    "．",         # point pleine chasse
+    "！", "？",   # ponctuation forte CJK
+    "۔",         # point ourdou
+    "।",         # danda (devanagari)
+    "॥",         # double danda
+    "؟",         # point d'interrogation arabe
+    ". ", "! ", "? ",   # ponctuation forte latine
+    "；", "、", "，",     # ponctuation faible CJK
+    "؛", "،",           # ponctuation faible arabe
+    "; ", ", ",         # ponctuation faible latine
+    " ",         # mot (inopérant en zh/ja/th)
+    "",          # caractère — filet de sécurité obligatoire
+]
 
 
 def detect_content_type_from_extension(
@@ -264,7 +337,12 @@ def _calculate_html_score(text: str) -> float:
 
 
 def _calculate_markdown_score(text: str) -> float:
-    """Calculate confidence score for Markdown content."""
+    """Calculate confidence score for Markdown content.
+
+    Les motifs utilisés (#, ```, [](), listes, |tables|) sont indépendants de
+    la langue du texte : ils fonctionnent aussi bien sur du malgache, de
+    l'arabe ou du japonais.
+    """
     score = 0.0
     indicators = 0
 
@@ -306,6 +384,13 @@ def _calculate_markdown_score(text: str) -> float:
         score += 0.08
         indicators += 1
 
+    # Tables markdown (très fréquent en sortie de PDF/tableur)
+    if re.search(r"^\|.+\|\s*$", text, re.MULTILINE) and re.search(
+        r"^\|[\s:|-]+\|\s*$", text, re.MULTILINE
+    ):
+        score += 0.2
+        indicators += 1
+
     # Bold/italic
     if re.search(r"\*\*.+?\*\*|__.+?__", text):
         score += 0.1
@@ -321,12 +406,16 @@ def _calculate_markdown_score(text: str) -> float:
 
 def detect_content_type(text: str, file_path: Optional[str] = None) -> ContentType:
     """
-    Detect content type using file extension (primary) and heuristics (fallback).
+    Detect content type using content heuristics (primary) and file extension.
 
-    Strategy:
-    1. If file extension is available and recognized, use it as primary
-    2. If no extension or generic extension (.txt), use heuristics
-    3. Heuristics can override extension only with very high confidence
+    Stratégie (voir la note en tête de module) :
+    1. Si l'extension correspond à un format transformé en markdown par
+       l'extraction (.pdf, .docx, .mp3, .png...), on ignore l'extension et on
+       fait confiance aux heuristiques : le contenu réel est du markdown.
+    2. Sinon l'extension est prioritaire (un .html reste du HTML, un .csv
+       reste du texte brut).
+    3. Une heuristique très confiante peut malgré tout surclasser une
+       extension "plain".
 
     Args:
         text: The text content
@@ -335,13 +424,21 @@ def detect_content_type(text: str, file_path: Optional[str] = None) -> ContentTy
     Returns:
         Detected ContentType
     """
-    # Try extension-based detection first
     extension_type = detect_content_type_from_extension(file_path)
-
-    # Get heuristic-based detection
     heuristic_type, confidence = detect_content_type_from_heuristics(text)
 
-    # If no extension or generic extension, use heuristics
+    # Cas 1 : le contenu a été transformé en markdown par l'extraction
+    if EXTRACTION_PRODUCES_MARKDOWN and file_path:
+        suffix = Path(file_path).suffix.lower()
+        if suffix in _TRANSFORMED_EXTENSIONS:
+            logger.debug(
+                f"Extension '{suffix}' is transformed to markdown at extraction; "
+                f"using heuristics: {heuristic_type.value} "
+                f"(confidence: {confidence:.2f})"
+            )
+            return heuristic_type
+
+    # Cas 2 : aucune extension exploitable
     if extension_type is None:
         logger.debug(
             f"No file extension, using heuristics: {heuristic_type.value} "
@@ -349,7 +446,7 @@ def detect_content_type(text: str, file_path: Optional[str] = None) -> ContentTy
         )
         return heuristic_type
 
-    # If extension suggests plain text but heuristics are very confident, override
+    # Cas 3 : extension "plain" mais heuristiques très confiantes
     if extension_type == ContentType.PLAIN and confidence >= HIGH_CONFIDENCE_THRESHOLD:
         logger.debug(
             f"Extension suggests plain, but heuristics override with "
@@ -357,7 +454,6 @@ def detect_content_type(text: str, file_path: Optional[str] = None) -> ContentTy
         )
         return heuristic_type
 
-    # Otherwise trust the extension
     logger.debug(f"Using extension-based content type: {extension_type.value}")
     return extension_type
 
@@ -386,12 +482,17 @@ def _get_markdown_splitter() -> MarkdownHeaderTextSplitter:
 
 
 def _get_plain_splitter() -> RecursiveCharacterTextSplitter:
-    """Get plain text splitter using CHUNK_SIZE and CHUNK_OVERLAP constants."""
+    """Get plain text splitter using CHUNK_SIZE, CHUNK_OVERLAP and multilingual separators."""
     return RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
         length_function=token_count,
-        separators=["\n\n", "\n", ". ", ", ", " ", ""],
+        separators=MULTILINGUAL_SEPARATORS,
+        # "end" et non True : avec True, LangChain préfixe le séparateur au
+        # morceau SUIVANT, donc les chunks commenceraient par "。texte" au lieu
+        # de finir par "texte。". Voir _split_text_with_regex dans
+        # langchain_text_splitters/character.py.
+        keep_separator="end",
     )
 
 
@@ -445,27 +546,40 @@ def chunk_text(
 
     logger.debug(f"Chunking text with content type: {content_type.value}")
 
-    # Select appropriate splitter
-    if content_type == ContentType.HTML:
-        splitter = _get_html_splitter()
-        # HTML splitter returns Document objects
-        docs = splitter.split_text(text)
-        chunks = [
-            doc.page_content if hasattr(doc, "page_content") else str(doc)
-            for doc in docs
-        ]
-    elif content_type == ContentType.MARKDOWN:
-        splitter = _get_markdown_splitter()
-        # Markdown splitter returns Document objects
-        docs = splitter.split_text(text)
-        chunks = [
-            doc.page_content if hasattr(doc, "page_content") else str(doc)
-            for doc in docs
-        ]
-    else:
-        # Plain text - use recursive splitter directly
-        splitter = _get_plain_splitter()
-        chunks = splitter.split_text(text)
+    # Select appropriate splitter. Un splitter structurel peut échouer sur un
+    # contenu mal formé (HTML tronqué, markdown exotique) : on retombe alors
+    # sur le découpage texte plutôt que de faire échouer l'embedding.
+    try:
+        if content_type == ContentType.HTML:
+            docs = _get_html_splitter().split_text(text)
+            chunks = [
+                doc.page_content if hasattr(doc, "page_content") else str(doc)
+                for doc in docs
+            ]
+        elif content_type == ContentType.MARKDOWN:
+            docs = _get_markdown_splitter().split_text(text)
+            chunks = [
+                doc.page_content if hasattr(doc, "page_content") else str(doc)
+                for doc in docs
+            ]
+        else:
+            chunks = _get_plain_splitter().split_text(text)
+    except Exception as e:
+        logger.warning(
+            f"{content_type.value} splitter failed ({e}); "
+            f"falling back to plain text splitting"
+        )
+        content_type = ContentType.PLAIN
+        chunks = _get_plain_splitter().split_text(text)
+
+    # Un splitter structurel peut ne rien produire (aucun header trouvé) :
+    # dans ce cas on découpe en texte brut, sinon on perdrait le document.
+    if not chunks and content_type in (ContentType.HTML, ContentType.MARKDOWN):
+        logger.debug(
+            f"{content_type.value} splitter produced no chunks; using plain splitter"
+        )
+        content_type = ContentType.PLAIN
+        chunks = _get_plain_splitter().split_text(text)
 
     # Apply secondary chunking if needed (for HTML/Markdown that may produce large chunks)
     if content_type in (ContentType.HTML, ContentType.MARKDOWN):

@@ -20,7 +20,15 @@ And provided you with the following instructions to formulate the answer:
 
 # YOUR JOB
 
-Based on the user question, the context and the retrieved results, please formulate the appropriate answer. 
+Based on the user question, the context and the retrieved results, please formulate the appropriate answer.
+
+# RESPONSE LANGUAGE
+
+Write your answer in the SAME language as the user's question, whatever the language
+of the retrieved documents. Question in English -> answer in English. Question in
+French -> answer in French. Question in Chinese -> answer in Chinese. Same rule for
+every other language. Translate the information you take from the documents into that
+language. Never translate document IDs — they are identifiers.
 
 # RESULTS
 
@@ -28,7 +36,25 @@ Based on the user question, the context and the retrieved results, please formul
 
 # CITING SOURCES
 
-It's very important that your response contains references to the searched documents so the user can follow-up and read more about the topic. The way you do that is by adding the id of the specific document in between brackets like this: [document_id].
+It's very important that your response contains references to the searched documents so the user can follow-up and read more about the topic. Every citation has two parts, in this order:
+
+1. A human-readable locator in parentheses, built ONLY from the fields present in the result: the document `title`, then its page, then its heading.
+2. The document id in square brackets: [document_id].
+
+Each result holds three PARALLEL lists: `matches`, `pages` and `headings`. They are aligned by index — the page of `matches[i]` is `pages[i]`, and its section is `headings[i]`. When you use the passage at index i, take its page and heading at that same index i. Do not mix indices, and do not reuse one page for the whole document: a single document usually returns several passages from different pages.
+
+Format: `(Title, p. PAGE, § HEADING) [document_id]`
+
+Examples, depending on what the result actually contains:
+- title + page + heading: `(Manuel RH 2025, p. 12, § 2.3 Congés payés) [source:abc123]`
+- title + page only: `(Manuel RH 2025, p. 12) [source:abc123]`
+- title only: `(Manuel RH 2025) [source:abc123]`
+
+## LOCATOR RULES — read carefully
+
+- **Never invent a page number or a heading.** `pages[i]` and `headings[i]` are often null — a chunk before the first section title, or a document that is not a PDF. When the value is null, omit `p. …` (or `§ …`) entirely. An omitted locator part is correct; a guessed one is a serious error.
+- Copy the `heading` value verbatim, including its numbering if it has one. Do not renumber, translate or shorten it.
+- Keep the locator in the document's own wording even when you answer in another language — it must match what the user will see when opening the document.
 
 ## EXAMPLE
 

@@ -24,11 +24,33 @@ Here are the answers you received for each of your queries.
 
 # YOUR JOB
 
-Based on the user question, the context and the retrieved answers, please formulate a final response to the user. 
+Based on the user question, the context and the retrieved answers, please formulate a final response to the user.
+
+# RESPONSE LANGUAGE
+
+Always write your answer in the SAME language as the user's question, whatever the
+language of the retrieved documents. Question in English -> answer in English.
+Question in French -> answer in French. Question in Chinese -> answer in Chinese.
+Same rule for every other language.
+
+Translate into that language any information you take from the documents, including
+quoted passages: summarise the quote in the question's language rather than pasting
+the original text. Never translate document IDs — they are identifiers.
 
 # CITING SOURCES
 
-It's very important that your response contains references to the searched documents so the user can follow-up and read more about the topic. The way you do that is by adding the id of the specific document in between brackets like this: [document_id]. The references will be present on all the answers you have been provided.
+It's very important that your response contains references to the searched documents so the user can follow-up and read more about the topic. The references are already present in the answers you have been provided — carry them over.
+
+Each citation has two parts: a human-readable locator in parentheses, then the document id in square brackets.
+
+Format: `(Title, p. PAGE, § HEADING) [document_id]`
+Example: `(Manuel RH 2025, p. 12, § 2.3 Congés payés) [source:abc123]`
+
+## LOCATOR RULES — read carefully
+
+- **Reuse the locators exactly as they appear in the answers you received.** Do not add a page number or a heading that is not already there, and do not drop one that is.
+- If an answer cites only a title, keep only the title. A missing page is correct; a guessed page is a serious error.
+- Keep the locator in the document's own wording even when you answer in another language — it must match what the user will see when opening the document.
 
 ## IMPORTANT
 

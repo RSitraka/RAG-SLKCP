@@ -7,8 +7,9 @@ from surreal_commands import CommandInput, CommandOutput, command, submit_comman
 
 from open_notebook.ai.models import model_manager
 from open_notebook.database.repository import ensure_record_id, repo_insert, repo_query
-from open_notebook.exceptions import ConfigurationError
 from open_notebook.domain.notebook import Note, Source, SourceInsight
+from open_notebook.exceptions import ConfigurationError
+from open_notebook.utils.chunk_locator import locate_chunks
 from open_notebook.utils.chunking import ContentType, chunk_text, detect_content_type
 from open_notebook.utils.embedding import generate_embedding, generate_embeddings
 
@@ -389,15 +390,25 @@ async def embed_source_command(input_data: EmbedSourceInput) -> EmbedSourceOutpu
                 f"for {len(chunks)} chunks"
             )
 
-        # 6. Bulk INSERT source_embedding records
+        # 6. Localiser chaque chunk dans le document (en-tête + page) afin que
+        # les citations puissent dire « Manuel RH, p. 12, § 2.3 » et pas
+        # seulement « source:xxxx ». Best-effort : les champs restent None si
+        # le document n'a ni titres ni pagination exploitable.
+        locations = locate_chunks(source.full_text, chunks, file_path)
+
+        # 7. Bulk INSERT source_embedding records
         records = [
             {
                 "source": ensure_record_id(input_data.source_id),
                 "order": idx,
                 "content": chunk,
                 "embedding": embedding,
+                "heading": location.heading,
+                "page": location.page,
             }
-            for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+            for idx, (chunk, embedding, location) in enumerate(
+                zip(chunks, embeddings, locations)
+            )
         ]
 
         logger.debug(f"Inserting {len(records)} source_embedding records")
