@@ -194,13 +194,20 @@ def _rebuild(
     la position du passage cité dans le document.
     """
     if target.is_video:
-        stamp = _stamp_from_locator(locator, target)
-        if stamp is None and offset is not None:
-            stamp = _timecode_at(target.text, offset)
+        # Notre repère d'abord : il est déduit de la position réelle du passage
+        # dans la transcription, donc vérifiable. Celui du modèle n'est qu'une
+        # affirmation — même dans les bornes, il peut désigner tout autre chose
+        # (observé : « 3:22 », la fin de la vidéo, pour un passage situé à 1:12).
+        stamp = _timecode_at(target.text, offset) if offset is not None else None
+        if stamp is None:
+            stamp = _stamp_from_locator(locator, target)
         return f"({target.title}) [{stamp}]" if stamp else f"({target.title})"
 
-    page: Optional[int] = None
-    if locator:
+    # Même ordre pour les pages : ce qu'on a localisé prime sur ce qui a été
+    # écrit, et l'écrit ne sert que faute de localisation.
+    page: Optional[int] = _page_at(target.text, offset) if offset is not None else None
+
+    if page is None and locator:
         match = _PAGE_IN_LOCATOR_RE.search(locator)
         if match:
             candidate = int(match.group(1))
@@ -208,11 +215,6 @@ def _rebuild(
             # affirmer : on retire la page plutôt que de la laisser passer.
             if target.max_page and 1 <= candidate <= target.max_page:
                 page = candidate
-
-    if page is None and offset is not None:
-        # Le modèle n'a pas donné de page exploitable : on la retrouve nous-
-        # mêmes en localisant le contenu cité dans le document.
-        page = _page_at(target.text, offset)
 
     if page:
         return f"({target.title}, p. {page})"
