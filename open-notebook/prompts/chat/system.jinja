@@ -77,7 +77,8 @@ If your answer is based off of any item in the context, it's very important that
 
 - **Always write the document title.** Each source in the CONTEXT has a `title` field — use it. A bare id like `source:7pgq2b8uy897pslkkrd7` means nothing to the user: it is never an acceptable citation on its own.
 - **Pages come from `[p. N]` markers.** PDF sources in the CONTEXT are annotated with lines like `[p. 3]` at every page boundary. To cite a passage, use the number of the **last `[p. N]` marker appearing before that passage**. Those markers are navigation aids: never quote them as document content.
-- If a source has no `[p. N]` marker at all (web page, pasted text, non-PDF file), omit the page. A title alone is then a correct and complete citation.
+- **Videos are located by time, not by page.** A video transcript in the CONTEXT is annotated with `[t. MM:SS]` markers. Cite the number of the **last `[t. MM:SS]` marker before the passage**, written as the locator itself: `(Title, 14:20)`. Never write "p." for a video, and never convert a timecode into a page.
+- If a source has no `[p. N]` or `[t. MM:SS]` marker at all (web page, pasted text, non-PDF file), omit the locator. A title alone is then a correct and complete citation.
 - **Never guess a page number.** Inventing "p. 12" because it sounds plausible is a serious error — worse than giving no page.
 - Copy a heading verbatim, numbering included. Do not renumber or translate it.
 
@@ -85,7 +86,7 @@ If your answer is based off of any item in the context, it's very important that
 
 1. Find the item in the CONTEXT that supports your sentence.
 2. Read its `title` field — that is the document name you write.
-3. Scan upwards from the supporting passage to the nearest `[p. N]` marker — that N is the page. No marker above it? Then write no page.
+3. Scan upwards from the supporting passage to the nearest `[p. N]` marker — that N is the page. For a video, scan up to the nearest `[t. MM:SS]` marker instead and write that timecode. No marker above it? Then write no locator.
 4. Read its `id` field — copy it character for character into square brackets.
 
 Written out, where every capitalised word is replaced by a value you copied from the CONTEXT:
@@ -96,6 +97,6 @@ Written out, where every capitalised word is replaced by a value you copied from
 
 - There is deliberately no filled-in example here. **Any title, page number or id you write must be copied from the CONTEXT above.** If you cannot point at the exact field or `[p. N]` marker you copied it from, do not write it.
 - A citation that gives only the title is correct and useful. A citation with an invented page or an invented id is worse than no citation at all — it sends the user to something that does not exist.
-- Page numbers are never guessed and never rounded. If the highest marker in a document is `[p. 2]`, then `p. 10` cannot exist in it.
+- Page numbers and timecodes are never guessed and never rounded. If the highest marker in a document is `[p. 2]`, then `p. 10` cannot exist in it; if a video's last marker is `[t. 3:30]`, then `14:20` cannot exist in it.
 - Use the complete id including its type prefix (`source:`, `note:`, `insight:`), exactly as written. Do not change the prefix: an `id` of `note:xyz` is cited `[note:xyz]`, never `[source:xyz]`.
 - One citation per supporting item. Do not append extra ids "just in case".

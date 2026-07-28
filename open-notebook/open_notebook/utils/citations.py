@@ -30,6 +30,10 @@ _CITATION_RE = re.compile(
 )
 _PAGE_IN_LOCATOR_RE = re.compile(r"\bp\.?\s*(\d{1,4})\b", re.IGNORECASE)
 _PAGE_MARKER_RE = re.compile(r"\[p\.\s*(\d{1,4})\]")
+# Une vidéo n'a pas de page : son repère est le minutage, inséré par
+# annotate_timecodes() sous la forme `[t. 14:20]`.
+_TIME_MARKER_RE = re.compile(r"\[t\.\s*(\d{1,3}(?::\d{2}){1,2})\]")
+_TIME_IN_LOCATOR_RE = re.compile(r"\b(\d{1,3}(?::\d{2}){1,2})\b")
 # « , p. » suivi d'une fermeture au lieu d'un numéro : page amorcée puis
 # abandonnée par le modèle.
 _DANGLING_PAGE_RE = re.compile(r"[,;]?\s*\bp\.\s*(?=[^\s\d]|\s*$)", re.MULTILINE)
@@ -42,15 +46,32 @@ _DANGLING_PAGE_RE = re.compile(r"[,;]?\s*\bp\.\s*(?=[^\s\d]|\s*$)", re.MULTILINE
 _MALFORMED_CITATION_RE = re.compile(r"\[[^\]\n]{0,300}?[a-z_]+:[^\]\n]{0,300}?\]")
 
 
+def _to_seconds(stamp: str) -> int:
+    """« 14:20 » -> 860, « 1:14:20 » -> 4460."""
+    parts = [int(p) for p in stamp.split(":")]
+    seconds = 0
+    for part in parts:
+        seconds = seconds * 60 + part
+    return seconds
+
+
 @dataclass
 class CitationTarget:
     """Ce qu'on sait de source sûre à propos d'un document citable."""
 
     title: str
     max_page: Optional[int] = None
-    # Texte du document, marqueurs `[p. N]` compris : sert à retrouver
-    # nous-mêmes d'où vient une réponse (cf. ground_references).
+    # Vidéo : dernier repère temporel connu, en secondes. Borne le minutage que
+    # le modèle a le droit de citer, comme max_page borne la page. None pour
+    # tout ce qui n'est pas une vidéo horodatée.
+    max_seconds: Optional[int] = None
+    # Texte du document, marqueurs `[p. N]` / `[t. MM:SS]` compris : sert à
+    # retrouver nous-mêmes d'où vient une réponse (cf. ground_references).
     text: str = ""
+
+    @property
+    def is_video(self) -> bool:
+        return self.max_seconds is not None
 
 
 def _collect(
@@ -70,16 +91,24 @@ def _collect(
 
         # La page maximale se lit dans les marqueurs insérés par
         # annotate_pages() : elle borne ce que le modèle a le droit de citer.
+        # Idem pour le minutage d'une vidéo (annotate_timecodes).
         max_page = None
+        max_seconds = None
         text = item.get("full_text") or item.get("content") or ""
         if isinstance(text, str) and text:
             pages = [int(m.group(1)) for m in _PAGE_MARKER_RE.finditer(text)]
             if pages:
                 max_page = max(pages)
+            stamps = [
+                _to_seconds(m.group(1)) for m in _TIME_MARKER_RE.finditer(text)
+            ]
+            if stamps:
+                max_seconds = max(stamps)
 
         registry[item_id] = CitationTarget(
             title=title,
             max_page=max_page,
+            max_seconds=max_seconds,
             text=text if isinstance(text, str) else "",
         )
 
@@ -128,15 +157,43 @@ def build_citation_registry(context: Any) -> Dict[str, CitationTarget]:
     return registry
 
 
+def _stamp_from_locator(
+    locator: Optional[str], target: CitationTarget
+) -> Optional[str]:
+    """Minutage écrit par le modèle, s'il tombe dans la durée de la vidéo."""
+    if not locator or target.max_seconds is None:
+        return None
+    match = _TIME_IN_LOCATOR_RE.search(locator)
+    if not match:
+        return None
+    # Au-delà de la durée connue, le minutage est inventé : on le refuse comme
+    # on refuse une page qui dépasse le nombre de pages.
+    if _to_seconds(match.group(1)) > target.max_seconds:
+        return None
+    return match.group(1)
+
+
 def _rebuild(
-    target: CitationTarget, locator: Optional[str], inferred_page: Optional[int]
+    target: CitationTarget, locator: Optional[str], offset: Optional[int]
 ) -> str:
-    """Citation lisible : nom du document et page, sans l'identifiant technique.
+    """Citation lisible : nom du document et repère, sans identifiant technique.
 
     Le modèle écrit `[source:7pgq2b8uy897pslkkrd7]` — c'est le seul moyen fiable
     de savoir DE QUEL document il parle. Mais cet identifiant ne dit rien à
     l'utilisateur : on le traduit en `(TechNova_Rapport_Annuel_2024.pdf, p. 2)`.
+
+    Le repère dépend du support : une page pour un document paginé, un minutage
+    pour une vidéo — `(IFS Cloud Finance, 14:20)`. Dans les deux cas il est
+    d'abord relu dans ce qu'a écrit le modèle, borné par ce que le document
+    contient réellement, et à défaut retrouvé nous-mêmes à partir de `offset`,
+    la position du passage cité dans le document.
     """
+    if target.is_video:
+        stamp = _stamp_from_locator(locator, target)
+        if stamp is None and offset is not None:
+            stamp = _timecode_at(target.text, offset)
+        return f"({target.title}, {stamp})" if stamp else f"({target.title})"
+
     page: Optional[int] = None
     if locator:
         match = _PAGE_IN_LOCATOR_RE.search(locator)
@@ -147,10 +204,10 @@ def _rebuild(
             if target.max_page and 1 <= candidate <= target.max_page:
                 page = candidate
 
-    if page is None:
+    if page is None and offset is not None:
         # Le modèle n'a pas donné de page exploitable : on la retrouve nous-
         # mêmes en localisant le contenu cité dans le document.
-        page = inferred_page
+        page = _page_at(target.text, offset)
 
     if page:
         return f"({target.title}, p. {page})"
@@ -172,18 +229,24 @@ def sanitize_citations(text: str, context: Any) -> str:
     dropped = 0
     repaired = 0
 
-    def infer_page(citation_id: str, target: CitationTarget) -> Optional[int]:
-        """Page retrouvée en localisant les mots de la réponse dans le document."""
+    def infer_offset(citation_id: str, target: CitationTarget) -> Optional[int]:
+        """Position du passage cité, retrouvée en localisant les mots de la
+        réponse dans le document.
+
+        C'est de cette position que se déduisent aussi bien la page que le
+        minutage. None si la correspondance est trop faible pour affirmer quoi
+        que ce soit — on préfère alors une citation sans repère.
+        """
         if citation_id not in inferred:
-            page = None
+            found = None
             if target.text and needles:
                 score, offset = _best_window(target.text, needles)
                 pinned = _unique_number_offset(target.text, needles)
                 if pinned is not None:
                     offset = pinned
                 if score >= _MIN_MATCHED_TOKENS and offset >= 0:
-                    page = _page_at(target.text, offset)
-            inferred[citation_id] = page
+                    found = offset
+            inferred[citation_id] = found
         return inferred[citation_id]
 
     def replace(match: re.Match) -> str:
@@ -197,7 +260,7 @@ def sanitize_citations(text: str, context: Any) -> str:
             dropped += 1
             return ""
         rebuilt = _rebuild(
-            target, match.group("locator"), infer_page(citation_id, target)
+            target, match.group("locator"), infer_offset(citation_id, target)
         )
         if rebuilt != match.group(0):
             repaired += 1
@@ -280,7 +343,18 @@ class Reference:
     id: str
     title: str
     page: Optional[int] = None
+    # Vidéo : moment où commence le passage, « 14:20 ». Exclusif de `page`.
+    timecode: Optional[str] = None
     score: int = 0
+
+    @property
+    def locator(self) -> Optional[str]:
+        """Repère affichable, quel que soit le support."""
+        if self.timecode:
+            return self.timecode
+        if self.page:
+            return f"p. {self.page}"
+        return None
 
 
 def _fold(word: str) -> str:
@@ -314,6 +388,20 @@ def _page_at(text: str, offset: int) -> Optional[int]:
             break
         page = int(match.group(1))
     return page
+
+
+def _timecode_at(text: str, offset: int) -> Optional[str]:
+    """Minutage du dernier marqueur `[t. MM:SS]` situé avant cet offset.
+
+    Le passage cité commence après ce repère : c'est donc le moment à partir
+    duquel l'utilisateur doit lancer la lecture pour l'entendre.
+    """
+    stamp = None
+    for match in _TIME_MARKER_RE.finditer(text):
+        if match.start() > offset:
+            break
+        stamp = match.group(1)
+    return stamp
 
 
 # Taille de la fenêtre de recherche, en caractères : l'ordre de grandeur d'un
@@ -443,11 +531,21 @@ def ground_references(answer: str, context: Any) -> List[Reference]:
         pinned = _unique_number_offset(document, needles)
         if pinned is not None:
             offset = pinned
+        located = offset >= 0
         references.append(
             Reference(
                 id=citation_id,
                 title=target.title,
-                page=_page_at(document, offset) if offset >= 0 else None,
+                page=(
+                    _page_at(document, offset)
+                    if located and not target.is_video
+                    else None
+                ),
+                timecode=(
+                    _timecode_at(document, offset)
+                    if located and target.is_video
+                    else None
+                ),
                 score=score,
             )
         )
@@ -457,9 +555,10 @@ def ground_references(answer: str, context: Any) -> List[Reference]:
 
 
 def format_reference(reference: Reference) -> str:
-    """« (TechNova_Rapport_Annuel_2024.pdf, p. 2) »."""
-    if reference.page:
-        return f"({reference.title}, p. {reference.page})"
+    """« (TechNova_Rapport_Annuel_2024.pdf, p. 2) », « (Ma vidéo, 14:20) »."""
+    locator = reference.locator
+    if locator:
+        return f"({reference.title}, {locator})"
     return f"({reference.title})"
 
 
@@ -485,11 +584,11 @@ def attach_references(text: str, context: Any, limit: int = 2) -> str:
     # Un insight porte le titre du document dont il est tiré : sans ce filtre,
     # une source et son résumé produiraient deux fois la même référence. Les
     # références sont triées par score, la première d'un titre est donc la
-    # meilleure — sauf si une suivante situe la page, ce qui est plus utile.
+    # meilleure — sauf si une suivante situe le passage, ce qui est plus utile.
     unique: Dict[str, Reference] = {}
     for reference in references:
         best = unique.get(reference.title)
-        if best is None or (reference.page and not best.page):
+        if best is None or (reference.locator and not best.locator):
             unique[reference.title] = reference
     references = list(unique.values())
 

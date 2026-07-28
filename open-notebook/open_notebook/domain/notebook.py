@@ -434,10 +434,18 @@ class Source(ObjectModel):
             # il n'a aucun moyen de citer une page (content-core concatène les
             # pages sans séparateur). On les réinsère depuis le PDF d'origine
             # quand il est encore sur disque ; sinon le texte passe inchangé.
-            from open_notebook.utils.chunk_locator import annotate_pages
+            from open_notebook.utils.chunk_locator import (
+                annotate_pages,
+                annotate_timecodes,
+            )
 
             file_path = self.asset.file_path if self.asset else None
             full_text = annotate_pages(self.full_text or "", file_path)
+            # Une vidéo n'a pas de page : son repère est le minutage, et il
+            # n'existe pas non plus dans full_text (la transcription stockée est
+            # du texte plat). Les deux annotations sont exclusives en pratique.
+            url = self.asset.url if self.asset else None
+            full_text = annotate_timecodes(full_text, url)
             return dict(
                 id=self.id,
                 title=self.title,
