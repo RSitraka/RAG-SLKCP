@@ -22,6 +22,7 @@ d'exception : une citation imprécise vaut mieux qu'un embedding perdu.
 import bisect
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import List, Optional, Tuple
 
 from loguru import logger
@@ -319,6 +320,137 @@ def annotate_pages(text: str, file_path: Optional[str] = None) -> str:
         return "".join(out)
     except Exception as e:
         logger.debug(f"Annotation des pages impossible ({file_path}): {e}")
+        return text
+
+
+# ---------------------------------------------------------------------------
+# Repères temporels des vidéos
+# ---------------------------------------------------------------------------
+#
+# Une vidéo n'a pas de page, mais elle a un minutage — et c'est exactement ce
+# que l'utilisateur doit pouvoir retrouver. Le mécanisme est celui des pages :
+# des marqueurs insérés dans le texte du contexte, que le modèle recopie et que
+# `citations.py` vérifie.
+
+# L'identifiant YouTube fait toujours 11 caractères, quelle que soit la forme
+# de l'URL (watch?v=, youtu.be/, /embed/, /shorts/, /live/).
+_YOUTUBE_ID_RE = re.compile(
+    r"(?:v=|youtu\.be/|/embed/|/shorts/|/live/)([A-Za-z0-9_-]{11})"
+)
+
+# Un marqueur toutes les 30 secondes : assez fin pour situer un passage dans la
+# vidéo, assez espacé pour ne pas noyer la transcription — les segments d'un
+# sous-titrage automatique ne durent que 3 à 4 secondes.
+_TIMECODE_INTERVAL_S = 30
+
+
+def format_timecode(seconds: float) -> str:
+    """« 14:20 », ou « 1:14:20 » au-delà de l'heure."""
+    total = max(0, int(seconds))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+@lru_cache(maxsize=64)
+def _read_video_segments(url: Optional[str]) -> Optional[List[Tuple[float, str]]]:
+    """(début en secondes, texte) de chaque segment de la transcription.
+
+    La transcription stockée dans `source.full_text` est du texte plat : les
+    horodatages n'existent que dans la source d'origine, il faut donc la
+    redemander. None si ce n'est pas une vidéo exploitable.
+
+    Mise en cache : le contexte est reconstruit à CHAQUE message du chat, et
+    sans cache la même vidéo serait redemandée à YouTube à chaque fois — une
+    latence inutile et un risque de blocage par le fournisseur. Le résultat ne
+    change pas pendant la vie du processus ; un redémarrage suffit à le
+    rafraîchir.
+    """
+    if not url:
+        return None
+    match = _YOUTUBE_ID_RE.search(url)
+    if not match:
+        return None
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore
+    except ImportError:  # pragma: no cover - dépend de l'installation
+        logger.debug("youtube-transcript-api absent : pas de repère temporel")
+        return None
+
+    try:
+        fetched = YouTubeTranscriptApi().fetch(match.group(1))
+        return [(float(seg.start), seg.text) for seg in fetched]
+    except Exception as e:
+        logger.debug(f"Transcription horodatée indisponible ({url}): {e}")
+        return None
+
+
+def annotate_timecodes(text: str, url: Optional[str] = None) -> str:
+    """Insère des marqueurs `[t. MM:SS]` dans la transcription d'une vidéo.
+
+    Pendant exact d'`annotate_pages` pour les PDF. Renvoie le texte inchangé si
+    ce n'est pas une vidéo dont la transcription horodatée est accessible, ou
+    si les segments ne sont pas retrouvables dans le texte — jamais d'exception.
+    """
+    if not text or not url:
+        return text
+
+    try:
+        segments = _read_video_segments(url)
+        if not segments:
+            return text
+
+        # Un marqueur par palier de temps, jamais un par segment.
+        retained: List[Tuple[float, str]] = []
+        last_kept = -_TIMECODE_INTERVAL_S
+        for start, segment_text in segments:
+            if start - last_kept >= _TIMECODE_INTERVAL_S:
+                retained.append((start, segment_text))
+                last_kept = start
+        if not retained:
+            return text
+
+        # Même table de correspondance que pour les pages : la recherche se fait
+        # sur le texte réduit à ses caractères de mot, l'insertion vise le texte
+        # réel (la transcription stockée est recollée, ponctuation comprise).
+        flat_chars: List[str] = []
+        positions: List[int] = []
+        for i, ch in enumerate(text):
+            low = ch.lower()
+            if not _NON_WORD_RE.match(low):
+                flat_chars.append(low)
+                positions.append(i)
+        flat = "".join(flat_chars)
+
+        insertions: List[Tuple[int, float]] = []
+        cursor = 0
+        for start, segment_text in retained:
+            probe = _alnum(segment_text)[:_PROBE_LEN]
+            if not probe:
+                continue
+            found = flat.find(probe, cursor)
+            if found == -1:
+                continue
+            insertions.append((positions[found], start))
+            cursor = found + 1
+
+        if not insertions:
+            return text
+
+        out: List[str] = []
+        previous = 0
+        for offset, start in insertions:
+            out.append(text[previous:offset])
+            out.append(f"\n[t. {format_timecode(start)}]\n")
+            previous = offset
+        out.append(text[previous:])
+        logger.debug(f"{len(insertions)} repères temporels insérés ({url})")
+        return "".join(out)
+    except Exception as e:
+        logger.debug(f"Annotation temporelle impossible ({url}): {e}")
         return text
 
 

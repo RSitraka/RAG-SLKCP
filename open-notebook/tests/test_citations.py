@@ -212,6 +212,85 @@ class TestInsightTitles:
         assert out.count("TechNova_Rapport_Annuel_2024.pdf") == 1
 
 
+# Une vidéo n'a pas de page : sa transcription est annotée `[t. MM:SS]` par
+# annotate_timecodes(), et c'est ce repère qui doit apparaître dans la citation.
+TRANSCRIPT = (
+    "[t. 0:08]\n"
+    "IFS Finance offers a breadth of capabilities to cover both operational "
+    "and strategic finance requirements.\n"
+    "[t. 1:24]\n"
+    "The GL consists of 10 dimensions and data can be sliced and diced using "
+    "any dimension.\n"
+    "[t. 2:57]\n"
+    "Group consolidation supports multiple reporting currencies."
+)
+VIDEO = {
+    "sources": [
+        {
+            "id": "source:y0jjv1nh2ic17ri3a9q0",
+            "title": "IFS Cloud Finance - IFS in 3",
+            "full_text": TRANSCRIPT,
+        }
+    ]
+}
+
+
+class TestVideoTimecodes:
+    """Pour une vidéo, le repère est un minutage, jamais une page."""
+
+    def test_registry_reads_the_last_timecode_as_bound(self):
+        target = build_citation_registry(VIDEO)["source:y0jjv1nh2ic17ri3a9q0"]
+        assert target.is_video
+        assert target.max_seconds == 177  # 2:57
+        assert target.max_page is None
+
+    def test_bare_id_gains_title_and_located_timecode(self):
+        text = (
+            "Le grand livre comporte 10 dimensions et les donnees peuvent etre "
+            "analysees selon n importe quelle dimension. "
+            "[source:y0jjv1nh2ic17ri3a9q0]"
+        )
+        out = sanitize_citations(text, VIDEO)
+        assert "(IFS Cloud Finance - IFS in 3, 1:24)" in out
+        assert "p." not in out
+
+    def test_valid_timecode_written_by_the_model_is_kept(self):
+        text = "Consolidation. (IFS in 3, 2:57) [source:y0jjv1nh2ic17ri3a9q0]"
+        out = sanitize_citations(text, VIDEO)
+        assert "(IFS Cloud Finance - IFS in 3, 2:57)" in out
+
+    def test_timecode_beyond_the_video_length_is_refused(self):
+        """La video dure 2:57 : « 14:20 » est forcement invente."""
+        text = (
+            "Le grand livre comporte 10 dimensions et les donnees peuvent etre "
+            "analysees selon n importe quelle dimension. (IFS in 3, 14:20) "
+            "[source:y0jjv1nh2ic17ri3a9q0]"
+        )
+        out = sanitize_citations(text, VIDEO)
+        assert "14:20" not in out
+        # Repli sur le minutage retrouve dans la transcription, pas sur rien.
+        assert "(IFS Cloud Finance - IFS in 3, 1:24)" in out
+
+    def test_unlocatable_passage_keeps_the_title_alone(self):
+        """Trop peu de mots communs pour situer : aucun minutage affirme."""
+        text = "Le grand livre comporte 10 dimensions. [source:y0jjv1nh2ic17ri3a9q0]"
+        out = sanitize_citations(text, VIDEO)
+        assert out.endswith("(IFS Cloud Finance - IFS in 3)")
+
+    def test_page_written_for_a_video_is_never_kept(self):
+        text = "Consolidation. (IFS in 3, p. 4) [source:y0jjv1nh2ic17ri3a9q0]"
+        out = sanitize_citations(text, VIDEO)
+        assert "p. 4" not in out
+
+    def test_reference_is_appended_with_a_timecode(self):
+        answer = (
+            "Le grand livre comporte 10 dimensions et les donnees peuvent etre "
+            "analysees selon n importe quelle dimension."
+        )
+        out = attach_references(answer, VIDEO)
+        assert out.endswith("(IFS Cloud Finance - IFS in 3, 1:24)")
+
+
 class TestGrounding:
     """Retrouver la source sans rien demander au modèle."""
 
