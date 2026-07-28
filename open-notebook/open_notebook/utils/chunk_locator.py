@@ -338,13 +338,23 @@ _YOUTUBE_ID_RE = re.compile(
     r"(?:v=|youtu\.be/|/embed/|/shorts/|/live/)([A-Za-z0-9_-]{11})"
 )
 
-# Un marqueur tous les quarts de minute. Le repère cité est le dernier marqueur
-# AVANT le passage : l'intervalle est donc l'erreur maximale, et à 30 secondes
-# une citation pouvait renvoyer une demi-minute trop tôt — assez pour passer
-# pour fausse. À 15 secondes l'écart reste sous le temps qu'il faut pour
-# retrouver la phrase à l'écoute, sans noyer la transcription de marqueurs
-# (les segments d'un sous-titrage automatique ne durent que 3 à 4 secondes).
-_TIMECODE_INTERVAL_S = 15
+# Les marqueurs suivent les phrases, pas une horloge. Deux énoncés voisins et
+# presque identiques — « Customer credit analysis shows... » à 2:31, « Customer
+# analysis shows... » à 2:38 — ne sont distinguables que si chacun porte son
+# propre repère ; à intervalle fixe ils tombaient dans le même pas et la
+# citation renvoyait à l'écran d'à côté.
+#
+# On marque donc les segments qui ouvrent une phrase, espacés d'au moins
+# _MIN_GAP_S pour ne pas baliser chaque incise, et on force un repère au-delà
+# de _MAX_GAP_S — un exposé sans ponctuation exploitable resterait sinon sans
+# aucun point de repère.
+_MIN_GAP_S = 5
+_MAX_GAP_S = 30
+
+# Début de phrase : ce qui suit une ponctuation forte, guillemet ou parenthèse
+# fermante compris. `end()` de la correspondance donne la position du premier
+# caractère du nouvel énoncé.
+_SENTENCE_START_RE = re.compile(r"[.!?][\"'»)\]]*\s+")
 
 
 def format_timecode(seconds: float) -> str:
@@ -391,6 +401,85 @@ def _read_video_segments(url: Optional[str]) -> Optional[List[Tuple[float, str]]
         return None
 
 
+def _locate_segments(
+    text: str, segments: List[Tuple[float, str]]
+) -> List[Tuple[int, float, float]]:
+    """(offset dans `text`, début, fin) de chaque segment retrouvé.
+
+    Même table de correspondance que pour les pages : la recherche se fait sur
+    le texte réduit à ses caractères de mot, la position renvoyée vise le texte
+    réel. Les segments introuvables sont ignorés sans faire échouer le reste.
+    """
+    flat_chars: List[str] = []
+    positions: List[int] = []
+    for i, ch in enumerate(text):
+        low = ch.lower()
+        if not _NON_WORD_RE.match(low):
+            flat_chars.append(low)
+            positions.append(i)
+    flat = "".join(flat_chars)
+
+    located: List[Tuple[int, float, float]] = []
+    cursor = 0
+    for index, (start, segment_text) in enumerate(segments):
+        probe = _alnum(segment_text)[:_PROBE_LEN]
+        if not probe:
+            continue
+        found = flat.find(probe, cursor)
+        if found == -1:
+            continue
+        # Fin = début du segment suivant. Pour le dernier, faute de mieux, on
+        # lui prête la durée moyenne d'un segment de sous-titrage.
+        end = segments[index + 1][0] if index + 1 < len(segments) else start + 4.0
+        located.append((positions[found], start, end))
+        cursor = found + 1
+    return located
+
+
+def _time_at_offset(
+    located: List[Tuple[int, float, float]], offset: int
+) -> Optional[float]:
+    """Moment correspondant à une position du texte.
+
+    Interpolation linéaire dans le segment qui la contient : une phrase qui
+    commence aux trois quarts d'un segment est prononcée aux trois quarts de sa
+    durée. Sans cela, tout ce qui tombe dans un même segment porterait le même
+    minutage — précisément ce qui faisait confondre deux écrans voisins.
+    """
+    if not located:
+        return None
+    index = bisect.bisect_right([start for start, _, _ in located], offset) - 1
+    if index < 0:
+        return None
+
+    seg_offset, begins, ends = located[index]
+    following = located[index + 1][0] if index + 1 < len(located) else None
+    span = (following - seg_offset) if following is not None else None
+    if not span or span <= 0:
+        return begins
+    ratio = min(1.0, max(0.0, (offset - seg_offset) / span))
+    return begins + ratio * max(0.0, ends - begins)
+
+
+def _fill_gaps(
+    insertions: List[Tuple[int, float]], located: List[Tuple[int, float, float]]
+) -> List[Tuple[int, float]]:
+    """Ajoute un repère de segment là où plus de _MAX_GAP_S s'écoule sans aucun."""
+    if not located:
+        return insertions
+
+    filled = list(insertions)
+    kept = sorted(moment for _, moment in insertions)
+    for seg_offset, begins, _ in located:
+        previous = max((moment for moment in kept if moment <= begins), default=None)
+        if previous is None or begins - previous >= _MAX_GAP_S:
+            filled.append((seg_offset, begins))
+            kept.append(begins)
+            kept.sort()
+    filled.sort(key=lambda item: item[0])
+    return filled
+
+
 def annotate_timecodes(text: str, url: Optional[str] = None) -> str:
     """Insère des marqueurs `[t. MM:SS]` dans la transcription d'une vidéo.
 
@@ -406,40 +495,34 @@ def annotate_timecodes(text: str, url: Optional[str] = None) -> str:
         if not segments:
             return text
 
-        # Un marqueur par palier de temps, jamais un par segment.
-        retained: List[Tuple[float, str]] = []
-        last_kept = -_TIMECODE_INTERVAL_S
-        for start, segment_text in segments:
-            if start - last_kept >= _TIMECODE_INTERVAL_S:
-                retained.append((start, segment_text))
-                last_kept = start
-        if not retained:
+        located = _locate_segments(text, segments)
+        if not located:
             return text
 
-        # Même table de correspondance que pour les pages : la recherche se fait
-        # sur le texte réduit à ses caractères de mot, l'insertion vise le texte
-        # réel (la transcription stockée est recollée, ponctuation comprise).
-        flat_chars: List[str] = []
-        positions: List[int] = []
-        for i, ch in enumerate(text):
-            low = ch.lower()
-            if not _NON_WORD_RE.match(low):
-                flat_chars.append(low)
-                positions.append(i)
-        flat = "".join(flat_chars)
+        # Marquer les débuts de PHRASE, et non les débuts de segment : le
+        # sous-titrage coupe toutes les 3 à 4 secondes, sans égard pour la
+        # ponctuation. « ... further analysis. Customer » ferme un énoncé et
+        # ouvre le suivant à l'intérieur d'un même segment ; caler le repère sur
+        # le segment donnerait le même minutage aux deux, donc renverrait à
+        # l'écran d'à côté.
+        starts = [0] + [m.end() for m in _SENTENCE_START_RE.finditer(text)]
 
         insertions: List[Tuple[int, float]] = []
-        cursor = 0
-        for start, segment_text in retained:
-            probe = _alnum(segment_text)[:_PROBE_LEN]
-            if not probe:
+        last_kept = -_MAX_GAP_S
+        for offset in starts:
+            moment = _time_at_offset(located, offset)
+            if moment is None:
                 continue
-            found = flat.find(probe, cursor)
-            if found == -1:
+            gap = moment - last_kept
+            if gap < _MIN_GAP_S:
                 continue
-            insertions.append((positions[found], start))
-            cursor = found + 1
+            insertions.append((offset, moment))
+            last_kept = moment
 
+        # Une phrase peut durer plus longtemps que _MAX_GAP_S sans ponctuation
+        # exploitable : on complète alors avec les débuts de segment, pour ne
+        # pas laisser de longues plages sans aucun repère.
+        insertions = _fill_gaps(insertions, located)
         if not insertions:
             return text
 
