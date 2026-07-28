@@ -272,6 +272,19 @@ class TestVideoTimecodes:
         assert out.count("IFS Cloud Finance - IFS in 3") == 1
         assert out.endswith("(IFS Cloud Finance - IFS in 3) [2:57]")
 
+    def test_located_timecode_wins_over_the_one_written_by_the_model(self):
+        """Cas reel : le modele a ecrit « 3:22 », la fin de la video, pour un
+        passage situe bien avant. Dans les bornes, donc accepte jusqu ici — et
+        faux. Ce qu on a localise prime sur ce qui a ete affirme."""
+        text = (
+            "Le grand livre comporte 10 dimensions et les donnees peuvent etre "
+            "analysees selon n importe quelle dimension. (IFS in 3) [2:57] "
+            "[source:y0jjv1nh2ic17ri3a9q0]"
+        )
+        out = sanitize_citations(text, VIDEO)
+        assert "[1:24]" in out
+        assert "2:57" not in out
+
     def test_timecode_beyond_the_video_length_is_refused(self):
         """La video dure 2:57 : « 14:20 » est forcement invente."""
         text = (

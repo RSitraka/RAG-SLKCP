@@ -338,10 +338,13 @@ _YOUTUBE_ID_RE = re.compile(
     r"(?:v=|youtu\.be/|/embed/|/shorts/|/live/)([A-Za-z0-9_-]{11})"
 )
 
-# Un marqueur toutes les 30 secondes : assez fin pour situer un passage dans la
-# vidéo, assez espacé pour ne pas noyer la transcription — les segments d'un
-# sous-titrage automatique ne durent que 3 à 4 secondes.
-_TIMECODE_INTERVAL_S = 30
+# Un marqueur tous les quarts de minute. Le repère cité est le dernier marqueur
+# AVANT le passage : l'intervalle est donc l'erreur maximale, et à 30 secondes
+# une citation pouvait renvoyer une demi-minute trop tôt — assez pour passer
+# pour fausse. À 15 secondes l'écart reste sous le temps qu'il faut pour
+# retrouver la phrase à l'écoute, sans noyer la transcription de marqueurs
+# (les segments d'un sous-titrage automatique ne durent que 3 à 4 secondes).
+_TIMECODE_INTERVAL_S = 15
 
 
 def format_timecode(seconds: float) -> str:
