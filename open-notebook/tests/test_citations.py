@@ -94,8 +94,22 @@ class TestSanitize:
         assert "p. 10" not in out
         assert "(TechNova_Rapport_Annuel_2024.pdf, p. 2)" in out
 
-    def test_valid_page_is_kept(self):
+    def test_unverifiable_page_is_dropped_even_when_plausible(self):
+        """« p. 2 » existe bien, mais « R&D. » ne suffit pas a situer le passage.
+
+        Un repere que nous n avons pas localise nous-memes n est qu une
+        affirmation du modele : il envoie verifier au mauvais endroit et
+        discredite la reponse entiere, alors qu un titre nu reste exact.
+        """
         text = "R&D. (Rapport, p. 2) [source:7pgq2b8uy897pslkkrd7]"
+        out = sanitize_citations(text, CONTEXT)
+        assert out.endswith("(TechNova_Rapport_Annuel_2024.pdf)")
+
+    def test_located_page_is_written(self):
+        text = (
+            "Les depenses de recherche et developpement atteignent 318 millions "
+            "MGA. (Rapport, p. 1) [source:7pgq2b8uy897pslkkrd7]"
+        )
         out = sanitize_citations(text, CONTEXT)
         assert "(TechNova_Rapport_Annuel_2024.pdf, p. 2)" in out
 
@@ -254,10 +268,13 @@ class TestVideoTimecodes:
         assert "(IFS Cloud Finance - IFS in 3) [1:24]" in out
         assert "p." not in out
 
-    def test_valid_timecode_written_by_the_model_is_kept(self):
+    def test_unverifiable_timecode_is_dropped(self):
+        """« 2:57 » est dans la duree, mais rien ne permet de situer
+        « Consolidation. » dans la transcription : le minutage saute."""
         text = "Consolidation. (IFS in 3, 2:57) [source:y0jjv1nh2ic17ri3a9q0]"
         out = sanitize_citations(text, VIDEO)
-        assert "(IFS Cloud Finance - IFS in 3) [2:57]" in out
+        assert out.endswith("(IFS Cloud Finance - IFS in 3)")
+        assert "2:57" not in out
 
     def test_bracketed_timecode_is_understood_not_left_beside(self):
         """Forme demandée au modèle : « (Titre) [2:57] [source:xxx] ».
@@ -270,7 +287,10 @@ class TestVideoTimecodes:
         )
         out = sanitize_citations(text, VIDEO)
         assert out.count("IFS Cloud Finance - IFS in 3") == 1
-        assert out.endswith("(IFS Cloud Finance - IFS in 3) [2:57]")
+        # Le minutage du modele est consomme par la citation, jamais laisse en
+        # texte libre a cote. Non verifiable ici, il disparait avec elle.
+        assert "2:57" not in out
+        assert out.endswith("(IFS Cloud Finance - IFS in 3)")
 
     def test_located_timecode_wins_over_the_one_written_by_the_model(self):
         """Cas reel : le modele a ecrit « 3:22 », la fin de la video, pour un
