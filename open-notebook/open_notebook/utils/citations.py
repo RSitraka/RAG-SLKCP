@@ -26,6 +26,11 @@ from loguru import logger
 # localisateur lisible entre parenthèses que l'on va reconstruire.
 _CITATION_RE = re.compile(
     r"(?:\(\s*(?P<locator>[^()]{0,200}?)\s*\)[ \t,]*)?"
+    # Minutage écrit entre crochets — la forme demandée pour les vidéos
+    # (`(Titre) [1:36] [source:xxx]`). Sans ce groupe, il resterait en texte
+    # libre à côté d'une citation reconstruite, et le titre apparaîtrait deux
+    # fois.
+    r"(?:\[(?P<bracket>\d{1,3}(?::\d{2}){1,2})\][ \t,]*)?"
     r"\[(?P<id>[a-z_]+:[A-Za-z0-9_-]+)\]"
 )
 _PAGE_IN_LOCATOR_RE = re.compile(r"\bp\.?\s*(\d{1,4})\b", re.IGNORECASE)
@@ -192,7 +197,7 @@ def _rebuild(
         stamp = _stamp_from_locator(locator, target)
         if stamp is None and offset is not None:
             stamp = _timecode_at(target.text, offset)
-        return f"({target.title}, {stamp})" if stamp else f"({target.title})"
+        return f"({target.title}) [{stamp}]" if stamp else f"({target.title})"
 
     page: Optional[int] = None
     if locator:
@@ -259,9 +264,10 @@ def sanitize_citations(text: str, context: Any) -> str:
         if target is None or target.title == citation_id:
             dropped += 1
             return ""
-        rebuilt = _rebuild(
-            target, match.group("locator"), infer_offset(citation_id, target)
-        )
+        # Le minutage peut arriver dans les parenthèses ou entre crochets :
+        # les deux écritures désignent la même chose.
+        locator = match.group("locator") or match.group("bracket")
+        rebuilt = _rebuild(target, locator, infer_offset(citation_id, target))
         if rebuilt != match.group(0):
             repaired += 1
         return rebuilt
@@ -555,10 +561,15 @@ def ground_references(answer: str, context: Any) -> List[Reference]:
 
 
 def format_reference(reference: Reference) -> str:
-    """« (TechNova_Rapport_Annuel_2024.pdf, p. 2) », « (Ma vidéo, 14:20) »."""
-    locator = reference.locator
-    if locator:
-        return f"({reference.title}, {locator})"
+    """« (TechNova_Rapport_Annuel_2024.pdf, p. 2) », « (Ma vidéo) [1:36] ».
+
+    Le repère d'une vidéo se met entre crochets, à la suite du titre : c'est un
+    horodatage, pas une subdivision du document.
+    """
+    if reference.timecode:
+        return f"({reference.title}) [{reference.timecode}]"
+    if reference.page:
+        return f"({reference.title}, p. {reference.page})"
     return f"({reference.title})"
 
 

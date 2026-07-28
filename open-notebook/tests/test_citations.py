@@ -251,13 +251,26 @@ class TestVideoTimecodes:
             "[source:y0jjv1nh2ic17ri3a9q0]"
         )
         out = sanitize_citations(text, VIDEO)
-        assert "(IFS Cloud Finance - IFS in 3, 1:24)" in out
+        assert "(IFS Cloud Finance - IFS in 3) [1:24]" in out
         assert "p." not in out
 
     def test_valid_timecode_written_by_the_model_is_kept(self):
         text = "Consolidation. (IFS in 3, 2:57) [source:y0jjv1nh2ic17ri3a9q0]"
         out = sanitize_citations(text, VIDEO)
-        assert "(IFS Cloud Finance - IFS in 3, 2:57)" in out
+        assert "(IFS Cloud Finance - IFS in 3) [2:57]" in out
+
+    def test_bracketed_timecode_is_understood_not_left_beside(self):
+        """Forme demandée au modèle : « (Titre) [2:57] [source:xxx] ».
+
+        Sans reconnaissance des crochets, le minutage resterait en texte libre
+        a cote d une citation reconstruite, et le titre sortirait deux fois.
+        """
+        text = (
+            "Consolidation. (IFS in 3) [2:57] [source:y0jjv1nh2ic17ri3a9q0]"
+        )
+        out = sanitize_citations(text, VIDEO)
+        assert out.count("IFS Cloud Finance - IFS in 3") == 1
+        assert out.endswith("(IFS Cloud Finance - IFS in 3) [2:57]")
 
     def test_timecode_beyond_the_video_length_is_refused(self):
         """La video dure 2:57 : « 14:20 » est forcement invente."""
@@ -269,7 +282,7 @@ class TestVideoTimecodes:
         out = sanitize_citations(text, VIDEO)
         assert "14:20" not in out
         # Repli sur le minutage retrouve dans la transcription, pas sur rien.
-        assert "(IFS Cloud Finance - IFS in 3, 1:24)" in out
+        assert "(IFS Cloud Finance - IFS in 3) [1:24]" in out
 
     def test_unlocatable_passage_keeps_the_title_alone(self):
         """Trop peu de mots communs pour situer : aucun minutage affirme."""
@@ -288,7 +301,7 @@ class TestVideoTimecodes:
             "analysees selon n importe quelle dimension."
         )
         out = attach_references(answer, VIDEO)
-        assert out.endswith("(IFS Cloud Finance - IFS in 3, 1:24)")
+        assert out.endswith("(IFS Cloud Finance - IFS in 3) [1:24]")
 
 
 class TestGrounding:
