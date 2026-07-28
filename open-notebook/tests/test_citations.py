@@ -285,6 +285,37 @@ class TestVideoTimecodes:
         assert "[1:24]" in out
         assert "2:57" not in out
 
+    def test_cited_insight_of_a_video_carries_the_video_timecode(self):
+        """Cas reel : le modele cite le resume plutot que la video.
+
+        Le resume n a ni marqueur ni minutage ; sans reprise du document
+        parent, la citation se reduisait au titre. Le passage, lui, se situe
+        parfaitement dans la transcription.
+        """
+        context = {
+            "sources": [
+                {
+                    "id": "source:y0jjv1nh2ic17ri3a9q0",
+                    "title": "IFS Cloud Finance - IFS in 3",
+                    "full_text": TRANSCRIPT,
+                    "insights": [
+                        {
+                            "id": "source_insight:mmrblv5pxeqgow8r8p6z",
+                            "content": "Resume : le grand livre et ses dimensions.",
+                        }
+                    ],
+                }
+            ]
+        }
+        text = (
+            "Le grand livre comporte 10 dimensions et les donnees peuvent etre "
+            "analysees selon n importe quelle dimension. "
+            "[source_insight:mmrblv5pxeqgow8r8p6z]"
+        )
+        out = sanitize_citations(text, context)
+        assert "(IFS Cloud Finance - IFS in 3) [1:24]" in out
+        assert "source_insight:" not in out
+
     def test_timecode_beyond_the_video_length_is_refused(self):
         """La video dure 2:57 : « 14:20 » est forcement invente."""
         text = (
