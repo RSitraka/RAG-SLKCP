@@ -15,10 +15,11 @@ tout ce qui est factuel :
 Le texte de la réponse n'est jamais réécrit au-delà des citations elles-mêmes.
 """
 
+import bisect
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -33,12 +34,10 @@ _CITATION_RE = re.compile(
     r"(?:\[(?P<bracket>\d{1,3}(?::\d{2}){1,2})\][ \t,]*)?"
     r"\[(?P<id>[a-z_]+:[A-Za-z0-9_-]+)\]"
 )
-_PAGE_IN_LOCATOR_RE = re.compile(r"\bp\.?\s*(\d{1,4})\b", re.IGNORECASE)
 _PAGE_MARKER_RE = re.compile(r"\[p\.\s*(\d{1,4})\]")
 # Une vidéo n'a pas de page : son repère est le minutage, inséré par
 # annotate_timecodes() sous la forme `[t. 14:20]`.
 _TIME_MARKER_RE = re.compile(r"\[t\.\s*(\d{1,3}(?::\d{2}){1,2})\]")
-_TIME_IN_LOCATOR_RE = re.compile(r"\b(\d{1,3}(?::\d{2}){1,2})\b")
 # « , p. » suivi d'une fermeture au lieu d'un numéro : page amorcée puis
 # abandonnée par le modèle.
 _DANGLING_PAGE_RE = re.compile(r"[,;]?\s*\bp\.\s*(?=[^\s\d]|\s*$)", re.MULTILINE)
@@ -191,25 +190,7 @@ def build_citation_registry(context: Any) -> Dict[str, CitationTarget]:
     return registry
 
 
-def _stamp_from_locator(
-    locator: Optional[str], target: CitationTarget
-) -> Optional[str]:
-    """Minutage écrit par le modèle, s'il tombe dans la durée de la vidéo."""
-    if not locator or target.max_seconds is None:
-        return None
-    match = _TIME_IN_LOCATOR_RE.search(locator)
-    if not match:
-        return None
-    # Au-delà de la durée connue, le minutage est inventé : on le refuse comme
-    # on refuse une page qui dépasse le nombre de pages.
-    if _to_seconds(match.group(1)) > target.max_seconds:
-        return None
-    return match.group(1)
-
-
-def _rebuild(
-    target: CitationTarget, locator: Optional[str], offset: Optional[int]
-) -> str:
+def _rebuild(target: CitationTarget, offset: Optional[int]) -> str:
     """Citation lisible : nom du document et repère, sans identifiant technique.
 
     Le modèle écrit `[source:7pgq2b8uy897pslkkrd7]` — c'est le seul moyen fiable
@@ -222,29 +203,21 @@ def _rebuild(
     contient réellement, et à défaut retrouvé nous-mêmes à partir de `offset`,
     la position du passage cité dans le document.
     """
+    # Seul un repère que NOUS avons localisé est affiché. Celui du modèle n'est
+    # qu'une affirmation : même dans les bornes du document, il peut désigner
+    # tout autre chose — « 3:22 », la fin de la vidéo, pour un passage situé à
+    # 1:12 ; ou l'écran voisin, à sept secondes de là. Un repère faux envoie le
+    # lecteur vérifier au mauvais endroit et discrédite la réponse entière,
+    # alors qu'un titre sans repère reste exact. Quand la réponse est trop
+    # reformulée pour être retrouvée dans le document, on n'affiche donc rien.
+    if offset is None:
+        return f"({target.title})"
+
     if target.is_video:
-        # Notre repère d'abord : il est déduit de la position réelle du passage
-        # dans la transcription, donc vérifiable. Celui du modèle n'est qu'une
-        # affirmation — même dans les bornes, il peut désigner tout autre chose
-        # (observé : « 3:22 », la fin de la vidéo, pour un passage situé à 1:12).
-        stamp = _timecode_at(target.text, offset) if offset is not None else None
-        if stamp is None:
-            stamp = _stamp_from_locator(locator, target)
+        stamp = _timecode_at(target.text, offset)
         return f"({target.title}) [{stamp}]" if stamp else f"({target.title})"
 
-    # Même ordre pour les pages : ce qu'on a localisé prime sur ce qui a été
-    # écrit, et l'écrit ne sert que faute de localisation.
-    page: Optional[int] = _page_at(target.text, offset) if offset is not None else None
-
-    if page is None and locator:
-        match = _PAGE_IN_LOCATOR_RE.search(locator)
-        if match:
-            candidate = int(match.group(1))
-            # Hors bornes = inventé. Sans marqueur connu, on ne peut rien
-            # affirmer : on retire la page plutôt que de la laisser passer.
-            if target.max_page and 1 <= candidate <= target.max_page:
-                page = candidate
-
+    page = _page_at(target.text, offset)
     if page:
         return f"({target.title}, p. {page})"
     return f"({target.title})"
@@ -295,10 +268,10 @@ def sanitize_citations(text: str, context: Any) -> str:
         if target is None or target.title == citation_id:
             dropped += 1
             return ""
-        # Le minutage peut arriver dans les parenthèses ou entre crochets :
-        # les deux écritures désignent la même chose.
-        locator = match.group("locator") or match.group("bracket")
-        rebuilt = _rebuild(target, locator, infer_offset(citation_id, target))
+        # Le localisateur écrit par le modèle — entre parenthèses comme entre
+        # crochets — est capté par la regex pour être remplacé, jamais relu :
+        # seule notre propre localisation fait foi.
+        rebuilt = _rebuild(target, infer_offset(citation_id, target))
         if rebuilt != match.group(0):
             repaired += 1
         return rebuilt
@@ -348,6 +321,29 @@ def list_known_ids(context: Any) -> List[str]:
 # contexte. C'est vérifiable et reproductible.
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _marker_spans(text: str) -> List[Tuple[int, int]]:
+    """Positions des marqueurs `[p. N]` et `[t. MM:SS]` dans le document.
+
+    Ce sont des aides à la navigation, pas du contenu, et leurs chiffres ne
+    doivent jamais servir à localiser quoi que ce soit. Sans cette exclusion, un
+    minutage inventé par le modèle — « 2:57 » — se retrouve dans le marqueur qui
+    porte exactement les mêmes chiffres, la localisation s'y accroche, et la
+    vérification confirme l'erreur au lieu de la corriger.
+    """
+    spans = [(m.start(), m.end()) for m in _PAGE_MARKER_RE.finditer(text)]
+    spans += [(m.start(), m.end()) for m in _TIME_MARKER_RE.finditer(text)]
+    spans.sort()
+    return spans
+
+
+def _inside_marker(spans: List[Tuple[int, int]], position: int) -> bool:
+    """Cette position tombe-t-elle dans un marqueur ?"""
+    if not spans:
+        return False
+    index = bisect.bisect_right([start for start, _ in spans], position) - 1
+    return index >= 0 and position < spans[index][1]
 
 # Mots trop fréquents pour situer quoi que ce soit. Volontairement court : les
 # chiffres et les noms propres font l'essentiel du travail.
@@ -461,10 +457,13 @@ def _unique_number_offset(document: str, needles: set) -> Optional[int]:
     la réponse. À plusieurs candidats, le nombre le plus long gagne — le plus
     spécifique.
     """
+    spans = _marker_spans(document)
     occurrences: Dict[str, List[int]] = {}
     for match in _TOKEN_RE.finditer(document):
         word = _fold(match.group(0))
         if word.isdigit() and word in needles:
+            if _inside_marker(spans, match.start()):
+                continue
             occurrences.setdefault(word, []).append(match.start())
 
     unique = [(word, spots[0]) for word, spots in occurrences.items() if len(spots) == 1]
@@ -482,10 +481,11 @@ def _best_window(document: str, needles: set) -> tuple:
     discriminant qu'un mot, et c'est presque toujours lui que l'utilisateur
     veut pouvoir retrouver.
     """
+    spans = _marker_spans(document)
     hits = []
     for match in _TOKEN_RE.finditer(document):
         folded = _fold(match.group(0))
-        if folded in needles:
+        if folded in needles and not _inside_marker(spans, match.start()):
             hits.append((match.start(), folded))
     if not hits:
         return 0, -1
