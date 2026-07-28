@@ -1,9 +1,0 @@
-#V2
-INSERT INTO credential { name: "BrokenTestCred", provider: "fakeprovider", modalities: ["language"], api_key: "gAAAAABnSomeGarbageThatLooksLikeFernetButIsNot123456789012345678901234567890123456789012345678901234=" };
-UPDATE credential:cda9ffofbi4g3ia4edwr SET api_key = "gAAAAABp3DZnxkMFugjpycLrM8b92Dq3luM5TrEdrmdrP4DAEvQvlK30CvYEejWsIn7W-BsT5UL69g8R21p0h5_JuthntwMGURn6J8AqYG-QHHu6I0y84v8=";
-SELECT * FROM _sbl_migrations;
-SELECT count() FROM source GROUP ALL; SELECT title FROM source:xv6buk0ik49gegbwsffl;
-SELECT asset, string::len(full_text) AS len FROM source:xv6buk0ik49gegbwsffl;
-SELECT full_text FROM source:xv6buk0ik49gegbwsffl;
-SELECT id, title, asset FROM source;
-SELECT full_text, metadata FROM source:y0jjv1nh2ic17ri3a9q0;
