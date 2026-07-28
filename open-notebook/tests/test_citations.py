@@ -423,7 +423,7 @@ class TestGrounding:
         refs = ground_references(answer, CONTEXT)
         assert refs, "la réponse doit être rattachée à un document"
         assert refs[0].title == "TechNova_Rapport_Annuel_2024.pdf"
-        assert refs[0].page == 2
+        assert refs[0].locators == ["p. 2"]
 
     def test_unrelated_answer_is_not_attached(self):
         """Mieux vaut aucune référence qu'une référence au hasard."""

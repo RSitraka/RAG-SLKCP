@@ -18,7 +18,7 @@ Le texte de la réponse n'est jamais réécrit au-delà des citations elles-mêm
 import bisect
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -190,7 +190,65 @@ def build_citation_registry(context: Any) -> Dict[str, CitationTarget]:
     return registry
 
 
-def _rebuild(target: CitationTarget, offset: Optional[int]) -> str:
+# Au-delà, la citation devient illisible : une réponse qui recouvre quatre
+# passages distincts est de toute façon trop large pour être vérifiée d'un
+# coup d'œil.
+_MAX_LOCATORS = 3
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _locate(target: CitationTarget, fragment: str) -> Optional[int]:
+    """Position du passage du document correspondant à ce fragment de réponse.
+
+    None si la correspondance est trop faible pour affirmer quoi que ce soit.
+    """
+    needles = set(_content_tokens(fragment))
+    if not target.text or not needles:
+        return None
+    score, offset = _best_window(target.text, needles)
+    pinned = _unique_number_offset(target.text, needles)
+    if pinned is not None:
+        offset = pinned
+    if score >= _MIN_MATCHED_TOKENS and offset >= 0:
+        return offset
+    return None
+
+
+def _locators_for(target: CitationTarget, answer: str) -> List[str]:
+    """Repères des passages que la réponse recouvre, dans l'ordre du document.
+
+    Localisation phrase par phrase, et non sur la réponse entière : un modèle
+    rapproche volontiers deux passages voisins — « accounts payable handles... »
+    à 1:36 et « the standard dashboards provide visuals... » à 1:58. Cherchée en
+    bloc, une telle réponse ne remonte qu'une seule position, et la citation ne
+    rend alors compte que de sa première moitié.
+    """
+    offsets: List[int] = []
+    for sentence in _SENTENCE_SPLIT_RE.split(answer):
+        found = _locate(target, sentence)
+        if found is not None:
+            offsets.append(found)
+    # Faute de phrase localisable isolément (réponse d'un seul tenant, très
+    # reformulée), on retente sur l'ensemble.
+    if not offsets:
+        found = _locate(target, answer)
+        if found is not None:
+            offsets.append(found)
+
+    locators: List[str] = []
+    for offset in sorted(offsets):
+        if target.is_video:
+            found_locator = _timecode_at(target.text, offset)
+        else:
+            page = _page_at(target.text, offset)
+            found_locator = f"p. {page}" if page else None
+        if found_locator and found_locator not in locators:
+            locators.append(found_locator)
+    return locators[:_MAX_LOCATORS]
+
+
+def _rebuild(target: CitationTarget, locators: List[str]) -> str:
     """Citation lisible : nom du document et repère, sans identifiant technique.
 
     Le modèle écrit `[source:7pgq2b8uy897pslkkrd7]` — c'est le seul moyen fiable
@@ -198,29 +256,19 @@ def _rebuild(target: CitationTarget, offset: Optional[int]) -> str:
     l'utilisateur : on le traduit en `(TechNova_Rapport_Annuel_2024.pdf, p. 2)`.
 
     Le repère dépend du support : une page pour un document paginé, un minutage
-    pour une vidéo — `(IFS Cloud Finance, 14:20)`. Dans les deux cas il est
-    d'abord relu dans ce qu'a écrit le modèle, borné par ce que le document
-    contient réellement, et à défaut retrouvé nous-mêmes à partir de `offset`,
-    la position du passage cité dans le document.
+    pour une vidéo. Une réponse qui recouvre plusieurs passages les porte tous —
+    `(IFS Cloud Finance) [1:36] [1:58]` — sinon la citation ne rendrait compte
+    que de sa première moitié.
+
+    Seul un repère que NOUS avons localisé est affiché : celui du modèle n'est
+    qu'une affirmation, et un repère faux envoie vérifier au mauvais endroit,
+    ce qui discrédite la réponse entière — alors qu'un titre nu reste exact.
     """
-    # Seul un repère que NOUS avons localisé est affiché. Celui du modèle n'est
-    # qu'une affirmation : même dans les bornes du document, il peut désigner
-    # tout autre chose — « 3:22 », la fin de la vidéo, pour un passage situé à
-    # 1:12 ; ou l'écran voisin, à sept secondes de là. Un repère faux envoie le
-    # lecteur vérifier au mauvais endroit et discrédite la réponse entière,
-    # alors qu'un titre sans repère reste exact. Quand la réponse est trop
-    # reformulée pour être retrouvée dans le document, on n'affiche donc rien.
-    if offset is None:
+    if not locators:
         return f"({target.title})"
-
     if target.is_video:
-        stamp = _timecode_at(target.text, offset)
-        return f"({target.title}) [{stamp}]" if stamp else f"({target.title})"
-
-    page = _page_at(target.text, offset)
-    if page:
-        return f"({target.title}, p. {page})"
-    return f"({target.title})"
+        return f"({target.title}) " + " ".join(f"[{loc}]" for loc in locators)
+    return f"({target.title}, " + ", ".join(locators) + ")"
 
 
 def sanitize_citations(text: str, context: Any) -> str:
@@ -233,30 +281,18 @@ def sanitize_citations(text: str, context: Any) -> str:
         return text
 
     registry = build_citation_registry(context)
-    needles = set(_content_tokens(text))
-    inferred: Dict[str, Optional[int]] = {}
+    # Les citations ne sont pas du propos : les garder ferait chercher dans le
+    # document l'identifiant technique et le minutage écrits par le modèle.
+    prose = _CITATION_RE.sub(" ", text)
+    located: Dict[str, List[str]] = {}
     dropped = 0
     repaired = 0
 
-    def infer_offset(citation_id: str, target: CitationTarget) -> Optional[int]:
-        """Position du passage cité, retrouvée en localisant les mots de la
-        réponse dans le document.
-
-        C'est de cette position que se déduisent aussi bien la page que le
-        minutage. None si la correspondance est trop faible pour affirmer quoi
-        que ce soit — on préfère alors une citation sans repère.
-        """
-        if citation_id not in inferred:
-            found = None
-            if target.text and needles:
-                score, offset = _best_window(target.text, needles)
-                pinned = _unique_number_offset(target.text, needles)
-                if pinned is not None:
-                    offset = pinned
-                if score >= _MIN_MATCHED_TOKENS and offset >= 0:
-                    found = offset
-            inferred[citation_id] = found
-        return inferred[citation_id]
+    def locators_for(citation_id: str, target: CitationTarget) -> List[str]:
+        """Repères des passages recouverts, calculés une fois par document."""
+        if citation_id not in located:
+            located[citation_id] = _locators_for(target, prose)
+        return located[citation_id]
 
     def replace(match: re.Match) -> str:
         nonlocal dropped, repaired
@@ -271,7 +307,7 @@ def sanitize_citations(text: str, context: Any) -> str:
         # Le localisateur écrit par le modèle — entre parenthèses comme entre
         # crochets — est capté par la regex pour être remplacé, jamais relu :
         # seule notre propre localisation fait foi.
-        rebuilt = _rebuild(target, infer_offset(citation_id, target))
+        rebuilt = _rebuild(target, locators_for(citation_id, target))
         if rebuilt != match.group(0):
             repaired += 1
         return rebuilt
@@ -375,19 +411,12 @@ class Reference:
 
     id: str
     title: str
-    page: Optional[int] = None
-    # Vidéo : moment où commence le passage, « 14:20 ». Exclusif de `page`.
-    timecode: Optional[str] = None
+    # Repères des passages recouverts, prêts à afficher : « p. 2 » pour un
+    # document paginé, « 1:36 » pour une vidéo. Plusieurs quand la réponse
+    # s'appuie sur plusieurs passages, vide quand rien n'a pu être localisé.
+    locators: List[str] = field(default_factory=list)
+    is_video: bool = False
     score: int = 0
-
-    @property
-    def locator(self) -> Optional[str]:
-        """Repère affichable, quel que soit le support."""
-        if self.timecode:
-            return self.timecode
-        if self.page:
-            return f"p. {self.page}"
-        return None
 
 
 def _fold(word: str) -> str:
@@ -566,28 +595,18 @@ def ground_references(answer: str, context: Any) -> List[Reference]:
         # parent reviendrait à citer deux fois la même source, sous deux noms.
         if target.parent_id and target.parent_id in registry:
             continue
-        score, offset = _best_window(document, needles)
+        score, _ = _best_window(document, needles)
         if score < _MIN_MATCHED_TOKENS:
             continue
-        # Un nombre unique dans le document prime sur le comptage de mots.
-        pinned = _unique_number_offset(document, needles)
-        if pinned is not None:
-            offset = pinned
-        located = offset >= 0
         references.append(
             Reference(
                 id=citation_id,
                 title=target.title,
-                page=(
-                    _page_at(document, offset)
-                    if located and not target.is_video
-                    else None
-                ),
-                timecode=(
-                    _timecode_at(document, offset)
-                    if located and target.is_video
-                    else None
-                ),
+                # Mêmes repères que pour une citation du modèle : localisés
+                # phrase par phrase, donc plusieurs si la réponse en recouvre
+                # plusieurs.
+                locators=_locators_for(target, answer),
+                is_video=target.is_video,
                 score=score,
             )
         )
@@ -597,16 +616,18 @@ def ground_references(answer: str, context: Any) -> List[Reference]:
 
 
 def format_reference(reference: Reference) -> str:
-    """« (TechNova_Rapport_Annuel_2024.pdf, p. 2) », « (Ma vidéo) [1:36] ».
+    """« (TechNova_Rapport_Annuel_2024.pdf, p. 2) », « (Ma vidéo) [1:36] [1:58] ».
 
     Le repère d'une vidéo se met entre crochets, à la suite du titre : c'est un
     horodatage, pas une subdivision du document.
     """
-    if reference.timecode:
-        return f"({reference.title}) [{reference.timecode}]"
-    if reference.page:
-        return f"({reference.title}, p. {reference.page})"
-    return f"({reference.title})"
+    if not reference.locators:
+        return f"({reference.title})"
+    if reference.is_video:
+        return f"({reference.title}) " + " ".join(
+            f"[{loc}]" for loc in reference.locators
+        )
+    return f"({reference.title}, " + ", ".join(reference.locators) + ")"
 
 
 def attach_references(text: str, context: Any, limit: int = 2) -> str:
@@ -635,7 +656,7 @@ def attach_references(text: str, context: Any, limit: int = 2) -> str:
     unique: Dict[str, Reference] = {}
     for reference in references:
         best = unique.get(reference.title)
-        if best is None or (reference.locator and not best.locator):
+        if best is None or (reference.locators and not best.locators):
             unique[reference.title] = reference
     references = list(unique.values())
 
