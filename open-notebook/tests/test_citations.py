@@ -316,6 +316,50 @@ class TestVideoTimecodes:
         assert "(IFS Cloud Finance - IFS in 3) [1:24]" in out
         assert "source_insight:" not in out
 
+    def test_neighbouring_screens_get_distinct_timecodes(self):
+        """Deux enonces voisins que separe un seul mot.
+
+        « Customer credit analysis » et « Customer analysis » se suivent a sept
+        secondes d intervalle et partagent presque tout leur vocabulaire. Tant
+        que les marqueurs suivaient une horloge, les deux tombaient dans le meme
+        pas et la citation renvoyait a l ecran d a cote.
+        """
+        transcript = (
+            "[t. 2:13]\n"
+            "IFS supports the full accounts receivable and credit control "
+            "processes.\n"
+            "[t. 2:32]\n"
+            "Customer credit analysis shows the full picture customers on a "
+            "single page with drill down to further analysis.\n"
+            "[t. 2:38]\n"
+            "Customer analysis shows the full transaction history of a single "
+            "client.\n"
+            "[t. 2:49]\n"
+            "The fixed assets module provides asset financial control."
+        )
+        context = {
+            "sources": [
+                {
+                    "id": "source:video",
+                    "title": "IFS in 3",
+                    "full_text": transcript,
+                }
+            ]
+        }
+
+        credit = attach_references(
+            "Customer Credit Analysis shows the full picture of customers on a "
+            "single page, with drill-down to further analysis.",
+            context,
+        )
+        simple = attach_references(
+            "Customer Analysis shows the full transaction history of a single "
+            "client.",
+            context,
+        )
+        assert credit.endswith("(IFS in 3) [2:32]")
+        assert simple.endswith("(IFS in 3) [2:38]")
+
     def test_timecode_beyond_the_video_length_is_refused(self):
         """La video dure 2:57 : « 14:20 » est forcement invente."""
         text = (
