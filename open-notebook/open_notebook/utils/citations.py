@@ -73,16 +73,28 @@ class CitationTarget:
     # Texte du document, marqueurs `[p. N]` / `[t. MM:SS]` compris : sert à
     # retrouver nous-mêmes d'où vient une réponse (cf. ground_references).
     text: str = ""
+    # Renseigné pour un insight : le document dont il est tiré. Il en partage le
+    # texte, donc il ne doit pas être proposé comme référence à part entière —
+    # ce serait citer deux fois la même chose.
+    parent_id: Optional[str] = None
 
     @property
     def is_video(self) -> bool:
         return self.max_seconds is not None
 
 
+def _is_insight(citation_id: str) -> bool:
+    """Les deux préfixes rencontrés : `insight:` (prompts) et `source_insight:`
+    (table SurrealDB, donc ce que renvoie réellement le contexte)."""
+    return citation_id.startswith(("insight:", "source_insight:"))
+
+
 def _collect(
     items: Any,
     registry: Dict[str, CitationTarget],
     fallback_title: Optional[str] = None,
+    parent: Optional["CitationTarget"] = None,
+    parent_id: Optional[str] = None,
 ) -> None:
     if not isinstance(items, list):
         return
@@ -110,11 +122,22 @@ def _collect(
             if stamps:
                 max_seconds = max(stamps)
 
+        if parent is not None:
+            # Un insight est dérivé de son document : le passage qu'il résume se
+            # situe dans CELUI-CI, pas dans le résumé, qui ne porte ni marqueur
+            # de page ni repère temporel. On lui prête donc le texte du parent —
+            # comme on lui prête déjà son titre — pour que la citation d'un
+            # insight puisse porter une page ou un minutage vérifiables.
+            text = parent.text
+            max_page = parent.max_page
+            max_seconds = parent.max_seconds
+
         registry[item_id] = CitationTarget(
             title=title,
             max_page=max_page,
             max_seconds=max_seconds,
             text=text if isinstance(text, str) else "",
+            parent_id=parent_id if parent is not None else None,
         )
 
 
@@ -142,10 +165,13 @@ def build_citation_registry(context: Any) -> Dict[str, CitationTarget]:
         if isinstance(sources, list):
             for source in sources:
                 if isinstance(source, dict):
+                    source_id = str(source.get("id") or "").strip()
                     _collect(
                         source.get("insights"),
                         registry,
                         fallback_title=str(source.get("title") or "").strip() or None,
+                        parent=registry.get(source_id),
+                        parent_id=source_id,
                     )
 
         insights = context.get("insights")
@@ -153,11 +179,14 @@ def build_citation_registry(context: Any) -> Dict[str, CitationTarget]:
             for insight in insights:
                 if not isinstance(insight, dict):
                     continue
-                parent = registry.get(str(insight.get("source_id") or "").strip())
+                source_id = str(insight.get("source_id") or "").strip()
+                parent = registry.get(source_id)
                 _collect(
                     [insight],
                     registry,
                     fallback_title=parent.title if parent else None,
+                    parent=parent,
+                    parent_id=source_id,
                 )
     return registry
 
@@ -523,7 +552,8 @@ def ground_references(answer: str, context: Any) -> List[Reference]:
         return []
 
     references: List[Reference] = []
-    for citation_id, target in build_citation_registry(context).items():
+    registry = build_citation_registry(context)
+    for citation_id, target in registry.items():
         document = target.text or ""
         if not document:
             continue
@@ -531,6 +561,10 @@ def ground_references(answer: str, context: Any) -> List[Reference]:
         # montrer à l'utilisateur : afficher l'identifiant serait exactement le
         # défaut qu'on cherche à corriger.
         if target.title == citation_id:
+            continue
+        # Un insight partage le texte de son document : le proposer en plus du
+        # parent reviendrait à citer deux fois la même source, sous deux noms.
+        if target.parent_id and target.parent_id in registry:
             continue
         score, offset = _best_window(document, needles)
         if score < _MIN_MATCHED_TOKENS:
@@ -642,7 +676,7 @@ def _has_distinctive_overlap(
     # distinctif — elle ne serait jamais attachée.
     doc_freq: Dict[str, int] = {}
     for cid, target in registry.items():
-        if cid.startswith("insight:") or not target.text:
+        if _is_insight(cid) or not target.text:
             continue
         for tok in set(_content_tokens(target.text)) & needles:
             doc_freq[tok] = doc_freq.get(tok, 0) + 1
