@@ -904,7 +904,10 @@ async def retry_source_processing(source_id: str):
             )
 
             # Update source with new command ID
-            source.command = ensure_record_id(f"command:{command_id}")
+            # command_id already includes 'command:' prefix — re-prefixing it
+            # yields 'command:command:xxx' and RecordID.parse then fails with
+            # "too many values to unpack (expected 2)". Mirrors the create path.
+            source.command = ensure_record_id(command_id)
             await source.save()
 
             # Get current embedded chunks count
