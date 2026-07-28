@@ -161,6 +161,57 @@ class TestSanitize:
         assert "R&D en hausse." in out
 
 
+# Un insight n'a pas de titre à lui. Deux formes rencontrées : imbriqué dans sa
+# source (contexte du chat de notebook) ou listé à part avec un `source_id`
+# (contexte construit par le chat de source).
+INSIGHTS_SANS_TITRE = {
+    "sources": [
+        {
+            "id": "source:7pgq2b8uy897pslkkrd7",
+            "title": "TechNova_Rapport_Annuel_2024.pdf",
+            "full_text": RAPPORT,
+            "insights": [{"id": "insight:imbrique", "content": "resume"}],
+        }
+    ],
+    "insights": [
+        {
+            "id": "insight:aplat",
+            "source_id": "source:7pgq2b8uy897pslkkrd7",
+            "content": "resume",
+        }
+    ],
+}
+
+
+class TestInsightTitles:
+    """Un insight cité doit renvoyer au document dont il est tiré."""
+
+    def test_nested_insight_inherits_the_source_title(self):
+        out = sanitize_citations("Resume. [insight:imbrique]", INSIGHTS_SANS_TITRE)
+        assert "(TechNova_Rapport_Annuel_2024.pdf)" in out
+        assert "insight:" not in out
+
+    def test_flat_insight_inherits_via_source_id(self):
+        out = sanitize_citations("Resume. [insight:aplat]", INSIGHTS_SANS_TITRE)
+        assert "(TechNova_Rapport_Annuel_2024.pdf)" in out
+        assert "insight:" not in out
+
+    def test_untitled_document_is_dropped_rather_than_shown_as_an_id(self):
+        """Sans titre nulle part, il ne resterait que l'identifiant technique."""
+        context = {"sources": [{"id": "source:anonyme", "full_text": RAPPORT}]}
+        out = sanitize_citations("R&D. [source:anonyme]", context)
+        assert "source:anonyme" not in out
+        assert out == "R&D."
+
+    def test_source_and_its_insight_are_not_cited_twice(self):
+        answer = (
+            "Les depenses de recherche et developpement atteignent 318 millions "
+            "MGA en 2024."
+        )
+        out = attach_references(answer, INSIGHTS_SANS_TITRE)
+        assert out.count("TechNova_Rapport_Annuel_2024.pdf") == 1
+
+
 class TestGrounding:
     """Retrouver la source sans rien demander au modèle."""
 

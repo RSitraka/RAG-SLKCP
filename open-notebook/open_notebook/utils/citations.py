@@ -53,7 +53,11 @@ class CitationTarget:
     text: str = ""
 
 
-def _collect(items: Any, registry: Dict[str, CitationTarget]) -> None:
+def _collect(
+    items: Any,
+    registry: Dict[str, CitationTarget],
+    fallback_title: Optional[str] = None,
+) -> None:
     if not isinstance(items, list):
         return
     for item in items:
@@ -62,7 +66,7 @@ def _collect(items: Any, registry: Dict[str, CitationTarget]) -> None:
         item_id = str(item.get("id") or "").strip()
         if not item_id:
             continue
-        title = str(item.get("title") or "").strip() or item_id
+        title = str(item.get("title") or "").strip() or fallback_title or item_id
 
         # La page maximale se lit dans les marqueurs insérés par
         # annotate_pages() : elle borne ce que le modèle a le droit de citer.
@@ -91,14 +95,36 @@ def build_citation_registry(context: Any) -> Dict[str, CitationTarget]:
         if isinstance(inner, dict):
             context = inner
     if isinstance(context, dict):
-        for key in ("sources", "notes", "insights"):
+        for key in ("sources", "notes"):
             _collect(context.get(key), registry)
-        # Les insights sont imbriqués dans leur source.
+
+        # Un insight n'a pas de titre : il est dérivé d'un document et hérite
+        # du sien. Sans cet héritage la citation retomberait sur l'identifiant
+        # technique — exactement ce qu'on cherche à éviter. Les sources sont
+        # déjà enregistrées ici, on peut donc y retrouver le titre parent, que
+        # les insights soient imbriqués dans leur source ou listés à part avec
+        # un `source_id`.
         sources = context.get("sources")
         if isinstance(sources, list):
             for source in sources:
                 if isinstance(source, dict):
-                    _collect(source.get("insights"), registry)
+                    _collect(
+                        source.get("insights"),
+                        registry,
+                        fallback_title=str(source.get("title") or "").strip() or None,
+                    )
+
+        insights = context.get("insights")
+        if isinstance(insights, list):
+            for insight in insights:
+                if not isinstance(insight, dict):
+                    continue
+                parent = registry.get(str(insight.get("source_id") or "").strip())
+                _collect(
+                    [insight],
+                    registry,
+                    fallback_title=parent.title if parent else None,
+                )
     return registry
 
 
@@ -164,7 +190,10 @@ def sanitize_citations(text: str, context: Any) -> str:
         nonlocal dropped, repaired
         citation_id = match.group("id")
         target = registry.get(citation_id)
-        if target is None:
+        # Identifiant absent du contexte, ou document sans titre lisible :
+        # dans les deux cas il ne reste que l'identifiant technique à afficher,
+        # ce qui ne renseigne personne. On supprime la citation.
+        if target is None or target.title == citation_id:
             dropped += 1
             return ""
         rebuilt = _rebuild(
@@ -184,7 +213,7 @@ def sanitize_citations(text: str, context: Any) -> str:
     if dropped or repaired:
         logger.debug(
             f"Citations : {repaired} corrigée(s), {dropped} supprimée(s) "
-            f"(identifiant absent du contexte)"
+            f"(identifiant absent du contexte ou document sans titre)"
         )
 
     # « p. » sans numéro : le modèle a amorcé une page puis n'a rien trouvé à
@@ -452,6 +481,17 @@ def attach_references(text: str, context: Any, limit: int = 2) -> str:
     references = ground_references(text, context)
     if not references:
         return text
+
+    # Un insight porte le titre du document dont il est tiré : sans ce filtre,
+    # une source et son résumé produiraient deux fois la même référence. Les
+    # références sont triées par score, la première d'un titre est donc la
+    # meilleure — sauf si une suivante situe la page, ce qui est plus utile.
+    unique: Dict[str, Reference] = {}
+    for reference in references:
+        best = unique.get(reference.title)
+        if best is None or (reference.page and not best.page):
+            unique[reference.title] = reference
+    references = list(unique.values())
 
     # On ne garde que les sources qui partagent avec la réponse un mot vraiment
     # discriminant (présent dans un seul document du contexte). Un document qui
