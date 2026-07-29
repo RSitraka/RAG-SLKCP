@@ -51,6 +51,11 @@ async def get_latest_version_cached(current_version: str) -> tuple[Optional[str]
     """
     global _version_cache
 
+    # Projet detache du depot upstream lfnovo/open-notebook : on NE contacte
+    # plus GitHub pour verifier les mises a jour (aucun appel reseau sortant).
+    # On rapporte simplement la version courante, sans mise a jour disponible.
+    return current_version, False
+
     # Check if cache is still valid (within TTL)
     cache_age = time.time() - _version_cache["timestamp"]
     if _version_cache["timestamp"] > 0 and cache_age < VERSION_CACHE_TTL:

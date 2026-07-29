@@ -68,6 +68,7 @@ class ContextBuilder:
 
         Supported parameters:
         - source_id: str - Include specific source
+        - source_inclusion_level: str - "insights", "full content", or both
         - notebook_id: str - Include notebook content
         - include_insights: bool - Include source insights
         - include_notes: bool - Include notes
@@ -80,6 +81,9 @@ class ContextBuilder:
 
         # Extract commonly used parameters
         self.source_id: Optional[str] = kwargs.get("source_id")
+        self.source_inclusion_level: str = kwargs.get(
+            "source_inclusion_level", "insights"
+        )
         self.notebook_id: Optional[str] = kwargs.get("notebook_id")
         self.include_insights: bool = kwargs.get("include_insights", True)
         self.include_notes: bool = kwargs.get("include_notes", True)
@@ -117,7 +121,9 @@ class ContextBuilder:
 
             # Build context based on parameters
             if self.source_id:
-                await self._add_source_context(self.source_id)
+                await self._add_source_context(
+                    self.source_id, self.source_inclusion_level
+                )
 
             if self.notebook_id:
                 await self._add_notebook_context(self.notebook_id)

@@ -1,0 +1,87 @@
+-- Migration 16 : citations précises (nom du document, page, en-tête)
+--
+-- Avant : un chunk ne portait que son texte et son rang. Impossible de citer
+-- autre chose que l'identifiant technique de la source.
+-- Après : chaque chunk sait d'où il vient dans le document.
+--
+--   heading : chemin des titres markdown qui le précèdent, tel qu'écrit dans
+--             le document ("2. Ressources humaines > 2.3 Congés payés"). La
+--             numérotation vient du document, elle n'est pas régénérée.
+--   page    : numéro de page 1-based, PDF uniquement et seulement si le
+--             fichier est encore sur disque — content-core concatène les pages
+--             sans séparateur, l'info est absente de source.full_text.
+--
+-- Les deux champs sont optionnels : les chunks déjà en base restent valides,
+-- et un document sans titre ni pagination reste indexable. Les anciens chunks
+-- gardent des valeurs NONE tant qu'ils ne sont pas ré-embeddés (Settings >
+-- Rebuild embeddings pour rattraper l'existant).
+
+DEFINE FIELD IF NOT EXISTS heading ON TABLE source_embedding TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS page    ON TABLE source_embedding TYPE option<int>;
+
+-- fn::vector_search doit remonter ces champs jusqu'au LLM, sinon il ne peut
+-- pas citer la page. Seule la branche source_embedding en dispose : un insight
+-- ou une note n'a ni page ni en-tête, on renvoie NONE pour garder une forme de
+-- résultat homogène (le array::union exige les mêmes colonnes partout).
+REMOVE FUNCTION IF EXISTS fn::vector_search;
+
+DEFINE FUNCTION IF NOT EXISTS fn::vector_search($query: array<float>, $match_count: int, $sources: bool, $show_notes: bool, $min_similarity: float) {
+    let $source_embedding_search =
+        IF $sources {(
+            SELECT id, title, content, parent_id, similarity, heading, page FROM (
+                SELECT source.id as id, source.title as title, content,
+                       source.id as parent_id,
+                       heading, page,
+                       (1 - vector::distance::knn()) as similarity
+                FROM source_embedding WHERE embedding <|500|> $query
+            ) WHERE similarity >= $min_similarity
+        )} ELSE { [] };
+
+    let $source_insight_search =
+        IF $sources {(
+            SELECT id, title, content, parent_id, similarity, heading, page FROM (
+                SELECT id, insight_type + ' - ' + (source.title OR '') as title, content,
+                       source.id as parent_id,
+                       NONE as heading, NONE as page,
+                       (1 - vector::distance::knn()) as similarity
+                FROM source_insight WHERE embedding <|500|> $query
+            ) WHERE similarity >= $min_similarity
+        )} ELSE { [] };
+
+    let $note_content_search =
+        IF $show_notes {(
+            SELECT id, title, content, parent_id, similarity, heading, page FROM (
+                SELECT id, title, content, id as parent_id,
+                       NONE as heading, NONE as page,
+                       (1 - vector::distance::knn()) as similarity
+                FROM note WHERE embedding <|500|> $query
+            ) WHERE similarity >= $min_similarity
+        )} ELSE { [] };
+
+    let $all_results = array::union(
+        array::union($source_embedding_search, $source_insight_search),
+        $note_content_search
+    );
+
+    -- Agrégation par document, puis tri/limite dans un SELECT EXTERNE : mettre
+    -- "ORDER BY ... LIMIT" sur la même requête que le GROUP BY ne trie pas
+    -- (quirk SurrealDB, cf. migration 15).
+    --
+    -- `headings` et `pages` sont des TABLEAUX alignés sur `matches` : un
+    -- document remonte souvent plusieurs passages, chacun avec sa page et sa
+    -- section. Renvoyer une seule valeur par document ferait citer la page
+    -- d'un passage pour le contenu d'un autre.
+    -- Ne PAS écrire `array::flatten([heading])` : les crochets construisent le
+    -- tableau avant l'agrégation et le flatten ratisse alors TOUS les groupes.
+    -- `array::flatten(heading)`, comme `array::flatten(content)`, reste dans le
+    -- groupe et conserve l'ordre des lignes.
+    let $grouped = (SELECT id, parent_id, title,
+                math::max(similarity) as similarity,
+                array::flatten(content) as matches,
+                array::flatten(heading) as headings,
+                array::flatten(page) as pages
+            FROM $all_results WHERE id IS NOT NONE
+            GROUP BY id, parent_id, title);
+
+    RETURN (SELECT * FROM $grouped ORDER BY similarity DESC LIMIT $match_count);
+};

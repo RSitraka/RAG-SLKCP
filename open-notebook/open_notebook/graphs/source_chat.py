@@ -15,9 +15,16 @@ from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
 from open_notebook.domain.notebook import Source, SourceInsight
 from open_notebook.exceptions import OpenNotebookError
 from open_notebook.utils import clean_thinking_content
+from open_notebook.utils.citations import attach_references, sanitize_citations
 from open_notebook.utils.context_builder import ContextBuilder
 from open_notebook.utils.error_classifier import classify_error
 from open_notebook.utils.text_utils import extract_text_content
+
+
+# Plafond du texte du document envoyé au modèle, en caractères (~30k tokens).
+# Le contexte de citation, lui, garde le document entier : une page retrouvée
+# reste donc juste même si le modèle n'a vu que le début.
+_MAX_SOURCE_CHARS = 120_000
 
 
 class SourceChatState(TypedDict):
@@ -66,9 +73,16 @@ def _call_model_with_source_context_inner(
             asyncio.set_event_loop(new_loop)
             context_builder = ContextBuilder(
                 source_id=source_id,
+                # Le document lui-même, pas seulement ses insights : sans son
+                # texte (marqueurs `[p. N]` compris) le modèle n'a rien à citer
+                # et aucun moyen d'indiquer une page.
+                source_inclusion_level="full content and insights",
                 include_insights=True,
                 include_notes=False,  # Focus on source-specific content
-                max_tokens=50000,  # Reasonable limit for source context
+                # Pas de budget ici : truncate_to_fit supprime des items
+                # entiers, donc un document plus gros que la limite
+                # disparaîtrait au lieu d'être raccourci. Le plafond est
+                # appliqué au formatage (_MAX_SOURCE_CHARS).
             )
             return new_loop.run_until_complete(context_builder.build())
         finally:
@@ -175,6 +189,13 @@ def _call_model_with_source_context_inner(
     # Clean thinking content from AI response (e.g., <think>...</think> tags)
     content = extract_text_content(ai_message.content)
     cleaned_content = clean_thinking_content(content)
+
+    # Les identifiants techniques (`[source:xv6buk...]`) sont remplacés par le
+    # nom du document et sa page ; ceux qui n'existent pas dans le contexte sont
+    # supprimés. Même traitement que chat.py et ask.py.
+    cleaned_content = sanitize_citations(cleaned_content, context_data)
+    cleaned_content = attach_references(cleaned_content, context_data)
+
     cleaned_message = ai_message.model_copy(update={"content": cleaned_content})
 
     # Update state with context information
@@ -209,8 +230,10 @@ def _format_source_context(context_data: Dict) -> str:
                 if source.get("full_text"):
                     # Truncate full text if too long
                     full_text = source["full_text"]
-                    if len(full_text) > 5000:
-                        full_text = full_text[:5000] + "...\n[Content truncated]"
+                    if len(full_text) > _MAX_SOURCE_CHARS:
+                        full_text = (
+                            full_text[:_MAX_SOURCE_CHARS] + "...\n[Content truncated]"
+                        )
                     context_parts.append(f"**Content:**\n{full_text}")
                 context_parts.append("")  # Empty line for separation
 

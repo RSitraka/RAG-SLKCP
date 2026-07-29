@@ -30,6 +30,19 @@ Your answer could be something like:
 }
 ```
 
+# SEARCH LANGUAGE
+
+The workspace may hold documents in a different language from the question. Search
+terms are matched against the documents, not against the question, so do not restrict
+yourself to the language the user wrote in.
+
+- Always include search terms in the language of the question.
+- Also include the English equivalent of the key concepts when the question is not in
+  English, as one additional search. Proper nouns, acronyms and technical terms stay
+  unchanged.
+- The `instructions` field must be written in the language of the question, since it
+  drives the wording of the answer.
+
 # OUTPUT FORMATTING
 
 {{format_instructions}}

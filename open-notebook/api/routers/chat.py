@@ -430,6 +430,18 @@ async def build_context(request: BuildContextRequest):
         context_data: dict[str, list[dict[str, str]]] = {"sources": [], "notes": []}
         total_content = ""
 
+        # Niveau d'inclusion demandé pour chaque source. Sans cette trace, un
+        # contexte « résumé » et un contexte « contenu complet » sont
+        # indiscernables dans le journal — alors que c'est exactement ce qui
+        # décide qu'une citation puisse porter une page ou un minutage : un
+        # résumé ne contient ni marqueur de page ni repère temporel.
+        requested = (request.context_config or {}).get("sources", {})
+        logger.info(
+            "Contexte demandé : "
+            + (", ".join(f"{sid}={level}" for sid, level in requested.items())
+               or "aucune configuration (repli sur le résumé de chaque source)")
+        )
+
         # Process context configuration if provided
         if request.context_config:
             # Process sources

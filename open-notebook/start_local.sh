@@ -5,10 +5,13 @@ set -uo pipefail
 cd "$(dirname "$0")"
 mkdir -p logs surreal_data
 
-# Node 20 via nvm (le frontend Next.js 16 l'exige ; le node système est trop vieux).
+# Node via nvm (le frontend Next.js 16 l'exige ; le node système est trop vieux).
 # On force le PATH explicitement : `nvm use` ne prend pas dans un shell non-interactif.
-NODE20_BIN="$(ls -d "$HOME"/.nvm/versions/node/v20*/bin 2>/dev/null | sort | tail -1)"
-[ -n "$NODE20_BIN" ] && export PATH="$NODE20_BIN:$PATH"
+# On prend la version installée la plus récente (tri -V), et non un v20* codé en dur :
+# sans ça, sur une machine en v24, le PATH retombe sur le npm Windows de /mnt/c,
+# qui lance CMD.EXE et échoue sur les chemins UNC.
+NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/v*/bin 2>/dev/null | sort -V | tail -1)"
+[ -n "$NODE_BIN" ] && export PATH="$NODE_BIN:$PATH"
 
 # `uv` est dans ~/.local/bin (ajouté par ton shell interactif mais ABSENT du PATH
 # d'un script non-interactif). On l'ajoute explicitement, sinon l'API/worker ne

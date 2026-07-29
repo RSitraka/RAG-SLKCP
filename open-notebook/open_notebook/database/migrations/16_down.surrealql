@@ -1,0 +1,51 @@
+-- Rollback migration 16 : retrait des métadonnées de citation.
+-- On restaure fn::vector_search dans sa forme de la migration 15.
+
+REMOVE FIELD IF EXISTS heading ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS page ON TABLE source_embedding;
+
+REMOVE FUNCTION IF EXISTS fn::vector_search;
+
+DEFINE FUNCTION IF NOT EXISTS fn::vector_search($query: array<float>, $match_count: int, $sources: bool, $show_notes: bool, $min_similarity: float) {
+    let $source_embedding_search =
+        IF $sources {(
+            SELECT id, title, content, parent_id, similarity FROM (
+                SELECT source.id as id, source.title as title, content,
+                       source.id as parent_id,
+                       (1 - vector::distance::knn()) as similarity
+                FROM source_embedding WHERE embedding <|500|> $query
+            ) WHERE similarity >= $min_similarity
+        )} ELSE { [] };
+
+    let $source_insight_search =
+        IF $sources {(
+            SELECT id, title, content, parent_id, similarity FROM (
+                SELECT id, insight_type + ' - ' + (source.title OR '') as title, content,
+                       source.id as parent_id,
+                       (1 - vector::distance::knn()) as similarity
+                FROM source_insight WHERE embedding <|500|> $query
+            ) WHERE similarity >= $min_similarity
+        )} ELSE { [] };
+
+    let $note_content_search =
+        IF $show_notes {(
+            SELECT id, title, content, parent_id, similarity FROM (
+                SELECT id, title, content, id as parent_id,
+                       (1 - vector::distance::knn()) as similarity
+                FROM note WHERE embedding <|500|> $query
+            ) WHERE similarity >= $min_similarity
+        )} ELSE { [] };
+
+    let $all_results = array::union(
+        array::union($source_embedding_search, $source_insight_search),
+        $note_content_search
+    );
+
+    let $grouped = (SELECT id, parent_id, title,
+                math::max(similarity) as similarity,
+                array::flatten(content) as matches
+            FROM $all_results WHERE id IS NOT NONE
+            GROUP BY id, parent_id, title);
+
+    RETURN (SELECT * FROM $grouped ORDER BY similarity DESC LIMIT $match_count);
+};
